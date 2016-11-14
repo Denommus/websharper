@@ -371,7 +371,7 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                                             | ExprSourcePos (p, _) -> Some p
                                             | _ -> None
                                         comp.AddError(tryGetExprSourcePos b, SourceError e.Message)
-                                        WebSharper.Compiler.Translator.errorPlaceholder
+                                        errorPlaceholder
                                 | _ -> b
                             let b = FixThisScope().Fix(b)      
                             // TODO : startupcode only for module values
@@ -432,7 +432,7 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                         res
                     with e ->
                         error (sprintf "Error reading definition: %s at %s" e.Message e.StackTrace)
-                        WebSharper.Compiler.Translator.errorPlaceholder
+                        errorPlaceholder
 
                 match memdef with
                 | Member.Method (_, mdef) 

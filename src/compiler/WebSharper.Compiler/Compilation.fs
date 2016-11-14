@@ -194,6 +194,12 @@ type Compilation(meta: Info, ?hasGraph) =
             | _ -> 
                 macroEntries.[key] <- [value]
 
+        member this.AddError(pos, msg) =
+            this.AddError(pos, SourceError msg)
+
+        member this.AddWarning(pos, msg) =
+            this.AddWarning(pos, SourceWarning msg)
+
     member this.GetMacroInstance(macro) =
         match macros.TryFind macro with
         | Some res -> res

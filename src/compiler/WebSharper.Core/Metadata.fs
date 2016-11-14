@@ -352,6 +352,8 @@ type ICompilation =
     abstract AssemblyName : string with get
     abstract GetMetadataEntries : MetadataEntry -> list<MetadataEntry>
     abstract AddMetadataEntry : MetadataEntry * MetadataEntry -> unit
+    abstract AddError : option<SourcePos> * string -> unit 
+    abstract AddWarning : option<SourcePos> * string -> unit 
 
 // planned functionality:    
 //    abstract AddNewJSClass : string -> TypeDefinition

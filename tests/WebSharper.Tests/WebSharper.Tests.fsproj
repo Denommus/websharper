@@ -53,6 +53,7 @@
     <Compile Include="Cookies.fs" />
     <Compile Include="Main.fs" />
     <None Include="ASTTests.fsx" />
+    <None Include="MetadataTests.fsx" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\compiler\WebSharper.Core.JavaScript\WebSharper.Core.JavaScript.fsproj">

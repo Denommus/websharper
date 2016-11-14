@@ -254,7 +254,7 @@ let rec breakExpr expr : Broken<BreakResult> =
     | GlobalAccess _
     | Hole _
         -> broken expr 
-    | Function (([] | [_]), I.Empty) ->
+    | Function (_, I.Empty) ->
         broken (Global [ "ignore" ])
     | Function ([x], I.Return (I.Var y)) when x = y ->
         broken (Global [ "id" ])
@@ -277,6 +277,9 @@ let rec breakExpr expr : Broken<BreakResult> =
         Sequential xs |> br
     | Application (I.Let (var, value, body), xs, p, l) ->
         Let (var, value, Application (body, xs, p, l)) |> br
+    | Application (I.Sequential (_ :: _ :: _ as a), b, c, d) ->
+        let ar = List.rev a
+        Sequential (List.rev (Application (ar.Head, b, c, d) :: List.tail ar)) |> br
     // generated for disposing iterators
     | Application (ItemGet(Let (x, Var y, Var x2), i), b, p, l) when x = x2 ->
         Application(ItemGet(Var y, i), b, p, l) |> br

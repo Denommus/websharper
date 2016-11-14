@@ -918,3 +918,36 @@ type HasNoThisVisitor() =
     member this.Check(e) =
         this.VisitExpression e
         ok
+
+/// A placeholder expression when encountering a translation error
+/// so that collection of all errors can occur.
+let errorPlaceholder = Value (String "$$ERROR$$")
+
+/// A transformer that tracks current source position
+type TransformerWithSourcePos(comp: Metadata.ICompilation) =
+    inherit Transformer()
+
+    let mutable currentSourcePos = None
+
+    member this.CurrentSourcePos = currentSourcePos
+
+    member this.Error msg =
+        comp.AddError(currentSourcePos, msg)
+        errorPlaceholder
+
+    member this.Warning msg =
+        comp.AddWarning(currentSourcePos, msg)
+
+    override this.TransformExprSourcePos (pos, expr) =
+        let p = currentSourcePos 
+        currentSourcePos <- Some pos
+        let res = this.TransformExpression expr
+        currentSourcePos <- p
+        ExprSourcePos(pos, res)
+
+    override this.TransformStatementSourcePos (pos, statement) =
+        let p = currentSourcePos 
+        currentSourcePos <- Some pos
+        let res = this.TransformStatement statement
+        currentSourcePos <- p
+        StatementSourcePos(pos, res)

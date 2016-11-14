@@ -26,19 +26,14 @@ open WebSharper.Core.AST
 
 module M = WebSharper.Core.Metadata
 
-/// A placeholder expression when encountering a translation error
-/// so that collection of all errors can occur.
-let errorPlaceholder = Value (String "$$ERROR$$")
 
 /// Debug-only checker for invalid forms after transformation to have localized error.
 /// Otherwise error is thrown when writing to JavaScript after packaging.
-type CheckNoInvalidJSForms(comp: Compilation, isInline) =
-    inherit Transformer()
+type CheckNoInvalidJSForms(comp: Compilation, isInline) as this =
+    inherit TransformerWithSourcePos(comp)
 
-    let mutable currentSourcePos = None
     let invalidForm f = 
-        comp.AddError(currentSourcePos, SourceError ("Invalid form after JS tranlation: " + f))
-        errorPlaceholder
+        this.Error("Invalid form after JS tranlation: " + f)
 
     override this.TransformSelf () = invalidForm "Self"
     override this.TransformBase () = invalidForm "Base"
@@ -56,25 +51,20 @@ type CheckNoInvalidJSForms(comp: Compilation, isInline) =
     override this.TransformTypeCheck (_,_) = invalidForm "TypeCheck"
     override this.TransformCall (a, b, c, d) = if isInline then base.TransformCall(a, b, c, d) else invalidForm "Call"
 
-    override this.TransformExprSourcePos (pos, expr) =
-        let p = currentSourcePos 
-        currentSourcePos <- Some pos
-        let res = this.TransformExpression expr
-        currentSourcePos <- p
-        res
-
-    override this.TransformStatementSourcePos (pos, statement) =
-        let p = currentSourcePos 
-        currentSourcePos <- Some pos
-        let res = this.TransformStatement statement
-        currentSourcePos <- p
-        res
-
 type Breaker() =
     inherit Transformer()
 
     override this.TransformStatement (a) =
-        BreakStatement (BreakStatement a)
+        let mutable i = 0
+        let mutable a = a
+        let mutable b = BreakStatement a
+        while i < 100 && a <> b do
+            i <- i + 1
+            a <- b
+            b <- BreakStatement b
+        if i = 100 then
+            printfn "BreakStatement iterated 100 times"
+        b
 
 let private breaker = Breaker()
 
@@ -153,14 +143,13 @@ let private taskRpcMethodNode = rpcMethodNode "Task" (GenericType Definitions.Ta
 let private sendRpcMethodNode = rpcMethodNode "Send" VoidType
 
 type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
-    inherit Transformer()
+    inherit TransformerWithSourcePos(comp)
 
     let inProgress = defaultArg inProgress []
     let mutable selfAddress = None
     let mutable currentNode = M.AssemblyNode ("", false) // placeholder
     let mutable currentIsInline = false
     let mutable hasDelayedTransform = false
-    let mutable currentSourcePos = None
 
     let modifyDelayedInlineInfo (info: M.CompiledMember) =
         if hasDelayedTransform then 
@@ -204,7 +193,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 match IgnoreExprSourcePos gres with 
                 | Function _
                 | FuncWithThis _ -> gres
-                | _ -> this.Error(SourceError (sprintf "Generator not returning a function: %s" g.Value.FullName))
+                | _ -> this.Error(sprintf "Generator not returning a function: %s" g.Value.FullName)
             let rec getExpr gres = 
                 match gres with
                 | GeneratedQuotation q -> 
@@ -214,16 +203,16 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 | GeneratedString s -> Recognize.parseGeneratedString s
                 | GeneratedJavaScript js -> Recognize.parseGeneratedJavaScript js
                 | GeneratorError msg ->
-                    this.Error(SourceError (sprintf "Generator error in %s: %s" g.Value.FullName msg))
+                    this.Error(sprintf "Generator error in %s: %s" g.Value.FullName msg)
                 | GeneratorWarning (msg, gres) ->
-                    this.Warning (SourceWarning (sprintf "Generator warning in %s: %s" g.Value.FullName msg))
+                    this.Warning (sprintf "Generator warning in %s: %s" g.Value.FullName msg)
                     getExpr gres
             getExpr genResult
         | None ->
             if comp.UseLocalMacros then
-                this.Error(SourceError "Getting generator failed")
+                this.Error("Getting generator failed")
             else
-                this.Warning(SourceWarning "Could not run generator in code service.")
+                this.Warning("Could not run generator in code service.")
                 Undefined       
 
     member this.GetCustomTypeConstructorInline (i : M.CustomTypeInfo, ctor: Constructor) =
@@ -244,7 +233,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                     if f.Optional then Some (Value (String f.JSName)) else None)
             if List.isEmpty optFields then obj
             else JSRuntime.DeleteEmptyFields obj optFields
-        | _ -> this.Error(SourceError "Unhandled F# compiler generated constructor")
+        | _ -> this.Error("Unhandled F# compiler generated constructor")
     
     member this.GetCustomTypeMethodInline (typ : Concrete<TypeDefinition>, i : M.CustomTypeInfo, meth: Concrete<Method>) =
         let me = meth.Entity.Value
@@ -260,7 +249,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             | "op_Addition" -> JSRuntime.CombineDelegates (NewArray [Hole 0; Hole 1])
             | "op_Equality" -> JSRuntime.DelegateEqual (Hole 0) (Hole 1)
             | "ToString" -> Value (String typ.Entity.Value.FullName)
-            | mn -> this.Error(SourceError ("Unrecognized delegate method: " + mn))
+            | mn -> this.Error("Unrecognized delegate method: " + mn)
         | M.FSharpRecordInfo fields ->
             match me.MethodName.[.. 2] with
             | "get" ->
@@ -277,7 +266,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                     )
                 match resOpt with
                 | Some res -> res
-                | _ -> this.Error(SourceError (sprintf "Could not find property of F# record type: %s.%s" typ.Entity.Value.FullName fn))
+                | _ -> this.Error(sprintf "Could not find property of F# record type: %s.%s" typ.Entity.Value.FullName fn)
             | "set" -> 
                 let fn = me.MethodName.[4 ..]
                 let resOpt =
@@ -292,11 +281,11 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                     )
                 match resOpt with
                 | Some res -> res
-                | _ -> this.Error(SourceError (sprintf "Could not find property of F# record type: %s.%s" typ.Entity.Value.FullName fn))
+                | _ -> this.Error(sprintf "Could not find property of F# record type: %s.%s" typ.Entity.Value.FullName fn)
             | _ -> 
                 match me.MethodName with
                 | "ToString" -> Value (String typ.Entity.Value.FullName)
-                | _ -> this.Error(SourceError "Unrecognized member of F# record type")         
+                | _ -> this.Error("Unrecognized member of F# record type")         
         | M.FSharpUnionInfo u ->
             let mN = me.MethodName
             if mN.StartsWith "get_Is" then
@@ -354,23 +343,23 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             else
                 match mN with
                 | "ToString" -> Value (String typ.Entity.Value.FullName)
-                | _ -> this.Error(SourceError ("Unrecognized F# compiler generated method for union: " + mN))                 
+                | _ -> this.Error("Unrecognized F# compiler generated method for union: " + mN)                 
         | M.FSharpUnionCaseInfo c ->
             let mN = me.MethodName
             if mN.StartsWith "get_" then
                 let fN = mN.[4 ..]
                 match c.Kind with
                 | M.ConstantFSharpUnionCase _ ->
-                    this.Error(SourceError ("Getting item of Constant union case: " + me.MethodName)) 
+                    this.Error("Getting item of Constant union case: " + me.MethodName) 
                 | M.NormalFSharpUnionCase fields -> 
                     match fields |> List.tryFindIndex (fun f -> f.Name = fN) with
                     | Some i ->
                         ItemGet(Hole 0, Value (String ("$" + string i)))
                     | _ ->
-                        this.Error(SourceError ("Could not find item of union case: " + fN))        
+                        this.Error("Could not find item of union case: " + fN)        
             else 
-                this.Error(SourceError ("Unrecognized F# compiler generated method for union case: " + me.MethodName))    
-        | _ -> this.Error(SourceError ("Unrecognized F# compiler generated method: " + me.MethodName))
+                this.Error("Unrecognized F# compiler generated method for union case: " + me.MethodName)    
+        | _ -> this.Error("Unrecognized F# compiler generated method: " + me.MethodName)
      
     member this.CompileMethod(info, expr, typ, meth) =
         currentNode <- M.MethodNode(typ, meth)
@@ -500,11 +489,8 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 comp.Graph.AddEdge(currentNode, M.TypeNode typ)
 
     member this.Error(err) =
-        comp.AddError(currentSourcePos, err)
+        comp.AddError(this.CurrentSourcePos, err)
         errorPlaceholder
-
-    member this.Warning(wrn) =
-        comp.AddWarning(currentSourcePos, wrn)
 
     member this.CompileCall (info, isPure, expr, thisObj, typ, meth, args, ?baseCall) =
         match thisObj with
@@ -533,7 +519,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             let ge =
                 if not (List.isEmpty typ.Generics && List.isEmpty meth.Generics) then
                     try GenericInlineResolver(typ.Generics @ meth.Generics).TransformExpression expr
-                    with e -> this.Error(SourceError (sprintf "Failed to resolve generics: %s" e.Message))
+                    with e -> this.Error (sprintf "Failed to resolve generics: %s" e.Message)
                 else expr
             Substitution(args |> List.map this.TransformExpression, ?thisObj = (thisObj |> Option.map this.TransformExpression)).TransformExpression(ge)
             |> this.TransformExpression
@@ -568,17 +554,17 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 match mres with
                 | MacroOk resExpr -> this.TransformExpression resExpr
                 | MacroWarning (msg, mres) ->
-                    this.Warning (SourceWarning (sprintf "Macro warning in %s.TranslateCall: %s" macro.Value.FullName msg))
+                    this.Warning (sprintf "Macro warning in %s.TranslateCall: %s" macro.Value.FullName msg)
                     getExpr mres
                 | MacroError msg ->
-                    this.Error(SourceError (sprintf "Macro error in %s.TranslateCall: %s" macro.Value.FullName msg))
+                    this.Error(sprintf "Macro error in %s.TranslateCall: %s" macro.Value.FullName msg)
                 | MacroDependencies (nodes, mres) ->
                     if comp.HasGraph then
                         nodes |> List.iter this.AddDependency
                     getExpr mres
                 | MacroFallback ->
                     match fallback with
-                    | None -> this.Error(SourceError (sprintf "No macro fallback found for '%s'" macro.Value.FullName))
+                    | None -> this.Error(sprintf "No macro fallback found for '%s'" macro.Value.FullName)
                     | Some f -> this.CompileCall (f, isPure, expr, thisObj, typ, meth, args)      
                 | MacroNeedsResolvedTypeArg -> 
                     if currentIsInline then
@@ -586,7 +572,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                         let typ = Generic (comp.FindProxied typ.Entity) typ.Generics
                         Call(thisObj |> Option.map this.TransformExpression, typ, meth, args |> List.map this.TransformExpression)
                     else 
-                        this.Error(SourceError (sprintf "Macro '%s' requires a resolved type argument." macro.Value.FullName))
+                        this.Error(sprintf "Macro '%s' requires a resolved type argument." macro.Value.FullName)
             getExpr macroResult
         | M.Remote (kind, handle, rh) ->
             let name, mnode =
@@ -622,22 +608,22 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             match meth.Entity.Value.MethodName with
             | BinaryOpName op ->
                 if args.Length <> 2 then
-                    this.Error(SourceError("Dynamic binary operator expecting 2 arguments"))
+                    this.Error("Dynamic binary operator expecting 2 arguments")
                 else
                     Binary (this.TransformExpression args.[0], op, this.TransformExpression args.[1])
             | UnaryOpName op ->
                 if args.Length <> 2 then
-                    this.Error(SourceError("Dynamic binary operator expecting 1 argument"))
+                    this.Error("Dynamic binary operator expecting 1 argument")
                 else
                     Unary (op, this.TransformExpression args.[0])
             | "op_Decrement" ->
                 if args.Length <> 1 then
-                    this.Error(SourceError("Dynamic decrement operator expecting 1 argument"))
+                    this.Error("Dynamic decrement operator expecting 1 argument")
                 else
                     Binary (this.TransformExpression args.[0], BinaryOperator.``-``, Value (Int 1))
             | "op_Increment" ->
                 if args.Length <> 1 then
-                    this.Error(SourceError("Dynamic increment operator expecting 1 argument"))
+                    this.Error("Dynamic increment operator expecting 1 argument")
                 else
                     Binary (this.TransformExpression args.[0], BinaryOperator.``+``, Value (Int 1))
             | n ->
@@ -645,7 +631,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 | Some o ->
                     Application(ItemGet(this.TransformExpression o, Value (String n)), args |> List.map this.TransformExpression, false, None) 
                 | _ ->
-                    this.Error(SourceError("Static method on dynamic object not tranlated: " + n))
+                    this.Error("Static method on dynamic object not tranlated: " + n)
         else
         match comp.LookupMethodInfo(typ.Entity, meth.Entity) with
         | Compiled (info, isPure, expr) ->
@@ -663,9 +649,9 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 let inl = this.GetCustomTypeMethodInline(typ, ct, meth)
                 Substitution(args |> List.map this.TransformExpression, ?thisObj = (thisObj |> Option.map this.TransformExpression)).TransformExpression(inl)
             with _ ->
-                this.Error(SourceError ("Failed to translate compiler generated method: " + meth.Entity.Value.MethodName))
+                this.Error("Failed to translate compiler generated method: " + meth.Entity.Value.MethodName)
         | LookupMemberError err ->
-            comp.AddError (currentSourcePos, err)
+            comp.AddError (this.CurrentSourcePos, err)
             match thisObj with 
             | Some thisObj ->
                 Application(ItemGet(this.TransformExpression thisObj, errorPlaceholder), args |> List.map this.TransformExpression, false, None) 
@@ -676,7 +662,8 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         match typ with
         | ConcreteType ct ->
             match comp.TryLookupClassInfo ct.Entity with
-            | None -> this.Error (TypeNotFound ct.Entity)
+            | None -> 
+                this.Error (TypeNotFound ct.Entity)
             | Some cls ->
                 let mi = meth.Entity.Value
                 let mName = mi.MethodName
@@ -689,15 +676,15 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 match ms with
                 | [ m ] ->
                     this.TransformCall(Some thisObj, ct, Generic m meth.Generics, args)
-                | [] -> this.Error(SourceError (sprintf "Could not find method for trait call: %s" mName))
-                | _ -> this.Error(SourceError (sprintf "Ambiguity at translating trait call: %s" mName))
+                | [] -> this.Error(sprintf "Could not find method for trait call: %s" mName)
+                | _ -> this.Error(sprintf "Ambiguity at translating trait call: %s" mName)
 
         | _ ->
             if currentIsInline then
                 hasDelayedTransform <- true
                 TraitCall(this.TransformExpression thisObj, typ, meth, args |> List.map this.TransformExpression)
             else 
-                this.Error(SourceError "Using a trait call requires the Inline attribute.")
+                this.Error("Using a trait call requires the Inline attribute.")
     
     override this.TransformNewDelegate(thisObj, typ, meth) =
         // TODO: CustomTypeMember
@@ -708,7 +695,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             let call = 
                 Lambda(args, Call(thisObj, typ, meth, args |> List.map Var))
                 |> this.TransformExpression
-            this.Warning(SourceWarning "Creating delegate from inlined call, equality may not work.")
+            this.Warning("Creating delegate from inlined call, equality may not work.")
             call        
         match comp.LookupMethodInfo(typ.Entity, meth.Entity) with
         | Compiled (info, _, _)
@@ -721,7 +708,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 | Some { Address = Some addr } ->
                     let func = GlobalAccess addr |> getItem "prototype" |> getItem name
                     JSRuntime.BindDelegate func (this.TransformExpression thisObj.Value) 
-                | _ -> this.Error (SourceError "Cannot look up prototype for delegate creating")
+                | _ -> this.Error ("Cannot look up prototype for delegate creating")
             | M.NotCompiledInline
             | M.Inline _ 
             | M.Macro _ 
@@ -744,7 +731,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             let ge =
                 if not (List.isEmpty typ.Generics) then
                     try GenericInlineResolver(typ.Generics).TransformExpression expr
-                    with e -> this.Error(SourceError (sprintf "Failed to resolve generics: %s" e.Message))
+                    with e -> this.Error(sprintf "Failed to resolve generics: %s" e.Message)
                 else expr
             Substitution(args |> List.map this.TransformExpression).TransformExpression(ge)
             |> this.TransformExpression
@@ -767,17 +754,17 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 match mres with
                 | MacroOk resExpr -> this.TransformExpression resExpr
                 | MacroWarning (msg, mres) ->
-                    this.Warning (SourceWarning (sprintf "Macro warning in %s.TranslateCall: %s" macro.Value.FullName msg))
+                    this.Warning (sprintf "Macro warning in %s.TranslateCall: %s" macro.Value.FullName msg)
                     getExpr mres
                 | MacroError msg ->
-                    this.Error(SourceError (sprintf "Macro error in %s.TranslateCall: %s" macro.Value.FullName msg))
+                    this.Error(sprintf "Macro error in %s.TranslateCall: %s" macro.Value.FullName msg)
                 | MacroDependencies (nodes, mres) ->
                     if comp.HasGraph then
                         nodes |> List.iter this.AddDependency
                     getExpr mres
                 | MacroFallback ->
                     match fallback with
-                    | None -> this.Error(SourceError (sprintf "No macro fallback found for '%s'" macro.Value.FullName))
+                    | None -> this.Error(sprintf "No macro fallback found for '%s'" macro.Value.FullName)
                     | Some f -> this.CompileCtor (f, isPure, expr, typ, ctor, args)      
                 | MacroNeedsResolvedTypeArg -> 
                     if currentIsInline then
@@ -785,9 +772,9 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                         let typ = Generic (comp.FindProxied typ.Entity) typ.Generics
                         Ctor(typ, ctor, args |> List.map this.TransformExpression)
                     else 
-                        this.Error(SourceError (sprintf "Macro '%s' requires a resolved type argument." macro.Value.FullName))
+                        this.Error(sprintf "Macro '%s' requires a resolved type argument." macro.Value.FullName)
             getExpr macroResult
-        | _ -> this.Error(SourceError "Invalid metadata for constructor.")
+        | _ -> this.Error("Invalid metadata for constructor.")
 
     override this.TransformCopyCtor(typ, objExpr) =
         match comp.TryLookupClassInfo typ |> Option.bind (fun c -> if c.HasWSPrototype then c.Address else None) with
@@ -807,7 +794,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             try 
                 let inl = this.GetCustomTypeConstructorInline(comp.GetCustomType typ.Entity, emptyConstructor)
                 Substitution(fields |> List.map this.TransformExpression).TransformExpression(inl)
-            with _ -> this.Error(SourceError "Failed to translate F# record creation.")
+            with _ -> this.Error("Failed to translate F# record creation.")
 
     override this.TransformNewUnionCase(typ, case, args) = 
         let t = typ.Entity
@@ -824,7 +811,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                         (args |> List.mapi (fun j e -> "$" + string j, e)) 
                     )
                 this.TransformCopyCtor(typ.Entity, objExpr)
-        | _ -> this.Error(SourceError "Failed to translate union case creation.")
+        | _ -> this.Error("Failed to translate union case creation.")
 
     override this.TransformUnionCaseTest(expr, typ, case) = 
         match comp.GetCustomType typ.Entity with
@@ -841,7 +828,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                     )
                 else
                     ItemGet(this.TransformExpression expr, Value (String "$")) ^== Value (Int i)    
-        | _ -> this.Error(SourceError "Failed to translate union case test.")
+        | _ -> this.Error("Failed to translate union case test.")
 
     override this.TransformUnionCaseTag(expr, typ) = 
         match comp.GetCustomType typ.Entity with
@@ -862,7 +849,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                         | _ -> failwith "impossible"
                     )   
                 Let (ev, this.TransformExpression expr, b)
-        | _ -> this.Error(SourceError "Failed to translate union case tag.")
+        | _ -> this.Error("Failed to translate union case tag.")
 
     override this.TransformCtor(typ, ctor, args) =
         let node = comp.LookupConstructorInfo(typ.Entity, ctor)
@@ -882,9 +869,9 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 let inl = this.GetCustomTypeConstructorInline(ct, ctor)
                 Substitution(args |> List.map this.TransformExpression).TransformExpression(inl)
             with _ ->
-                this.Error(SourceError "Failed to translate compiler generated constructor")
+                this.Error("Failed to translate compiler generated constructor")
         | LookupMemberError err ->
-            comp.AddError (currentSourcePos, err)
+            comp.AddError (this.CurrentSourcePos, err)
             Application(errorPlaceholder, args |> List.map this.TransformExpression, false, None)
                   
     override this.TransformBaseCtor(expr, typ, ctor, args) =
@@ -896,7 +883,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         | Let (i1, a1, New(func, [Var v1])) when i1 = v1 ->
             Application(func |> getItem "call", expr :: [a1], false, None)
         | _ ->
-            comp.AddError (currentSourcePos, SourceError "base class constructor is not regular")
+            comp.AddError (this.CurrentSourcePos, SourceError "base class constructor is not regular")
             Application(errorPlaceholder, args |> List.map this.TransformExpression, false, None)
 
     override this.TransformCctor(typ) =
@@ -912,12 +899,12 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         | LookupMemberError err ->
             this.Error err
         | _ -> 
-            this.Error (SourceError "Could not get name of abstract method")
+            this.Error ("Could not get name of abstract method")
 
     override this.TransformSelf () = 
         match selfAddress with
         | Some self -> GlobalAccess self
-        | _ -> this.Error (SourceError "Self address missing")
+        | _ -> this.Error ("Self address missing")
 
     override this.TransformFieldGet (expr, typ, field) =
         if comp.HasGraph then
@@ -955,16 +942,16 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                         JSRuntime.GetOptional (this.TransformExpression expr.Value |> getItem name)
                     else
                         this.TransformExpression expr.Value |> getItem name 
-                | _ -> this.Error(SourceError (sprintf "Could not find field of F# record type: %s.%s" typ.Entity.Value.FullName field))
+                | _ -> this.Error(sprintf "Could not find field of F# record type: %s.%s" typ.Entity.Value.FullName field)
             | M.FSharpUnionInfo _ -> failwith "Union base type should not have fields"   
             | _ -> failwith "CustomTypeField error"          
         | PropertyField (getter, _) ->
             match getter with
             | Some m -> 
                 this.TransformCall (expr, typ, NonGeneric m, [])   
-            | _ -> this.Error(SourceError (sprintf "Could not getter of F# field: %s.%s" typ.Entity.Value.FullName field))
+            | _ -> this.Error(sprintf "Could not getter of F# field: %s.%s" typ.Entity.Value.FullName field)
         | LookupFieldError err ->
-            this.Error(err)
+            this.Error err
 
     override this.TransformFieldSet (expr, typ, field, value) =
         if comp.HasGraph then
@@ -997,7 +984,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                         JSRuntime.SetOptional (this.TransformExpression expr.Value) (Value (String name)) (this.TransformExpression value)
                     else
                         ItemSet(this.TransformExpression expr.Value, Value (String name), this.TransformExpression value)
-                | _ -> this.Error(SourceError (sprintf "Could not find field of F# record type: %s.%s" typ.Entity.Value.FullName field))
+                | _ -> this.Error(sprintf "Could not find field of F# record type: %s.%s" typ.Entity.Value.FullName field)
             | M.FSharpUnionCaseInfo _ -> failwith "Union case field should not be set" 
             | M.FSharpUnionInfo _ -> failwith "Union base type should not have fields"   
             | _ -> failwith "CustomTypeField error"          
@@ -1005,9 +992,9 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             match setter with
             | Some m -> 
                 this.TransformCall (expr, typ, NonGeneric m, [value])   
-            | _ -> this.Error(SourceError (sprintf "Could not setter of F# field: %s.%s" typ.Entity.Value.FullName field))
+            | _ -> this.Error(sprintf "Could not setter of F# field: %s.%s" typ.Entity.Value.FullName field)
         | LookupFieldError err ->
-            comp.AddError (currentSourcePos, err)
+            comp.AddError (this.CurrentSourcePos, err)
             ItemSet(errorPlaceholder, errorPlaceholder, this.TransformExpression value)
 
     override this.TransformTypeCheck(expr, typ) =
@@ -1068,14 +1055,14 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 typeof "function"
             | tname ->
                 if not (List.isEmpty gs) then
-                    this.Warning (SourceWarning "Generic type check is ignoring erased type parameter.")
+                    this.Warning ("Generic type check is ignoring erased type parameter.")
                 match comp.TryLookupClassInfo t with
                 | Some c ->
                     match c.Address with
                     | Some a ->
                         Binary(this.TransformExpression expr, BinaryOperator.instanceof, GlobalAccess a)
                     | _ ->
-                        this.Error(SourceError ("Type test cannot be translated because client-side class does not have a prototype: " + t.Value.FullName))
+                        this.Error("Type test cannot be translated because client-side class does not have a prototype: " + t.Value.FullName)
                 | None -> 
                     match comp.GetCustomType t with
                     | M.FSharpUnionCaseInfo c ->
@@ -1086,29 +1073,15 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                         let i = Id.New (mut = false)
                         Let (i, trE, this.TransformTypeCheck(Var i, ConcreteType uTyp) ^&& this.TransformUnionCaseTest(Var i, uTyp, c.Name)) 
                     | M.DelegateInfo _ ->
-                        this.Error(SourceError "Type tests do not support delegate type, check against WebSharper.JavaScript.Function.")   
+                        this.Error("Type tests do not support delegate type, check against WebSharper.JavaScript.Function.")   
                     | _ -> 
-                        this.Error(SourceError (sprintf "Failed to compile a type check for type '%s'" tname))
+                        this.Error(sprintf "Failed to compile a type check for type '%s'" tname)
         | TypeParameter _ | StaticTypeParameter _ -> 
             if currentIsInline then
                 hasDelayedTransform <- true
                 TypeCheck(this.TransformExpression expr, typ)
             else 
-                this.Error(SourceError "Using a type test on a type parameter requires the Inline attribute.")
-        | ArrayType _ -> this.Error(SourceError "Type tests do not support generic array type, check against System.Array.")
-        | FSharpFuncType _ -> this.Error(SourceError "Type tests do not support F# function type, check against WebSharper.JavaScript.Function.")   
-        | _ ->  this.Error(SourceError "Failed to compile a type check.")
-
-    override this.TransformExprSourcePos (pos, expr) =
-        let p = currentSourcePos 
-        currentSourcePos <- Some pos
-        let res = this.TransformExpression expr
-        currentSourcePos <- p
-        ExprSourcePos(pos, res)
-
-    override this.TransformStatementSourcePos (pos, statement) =
-        let p = currentSourcePos 
-        currentSourcePos <- Some pos
-        let res = this.TransformStatement statement
-        currentSourcePos <- p
-        StatementSourcePos(pos, res)
+                this.Error("Using a type test on a type parameter requires the Inline attribute.")
+        | ArrayType _ -> this.Error("Type tests do not support generic array type, check against System.Array.")
+        | FSharpFuncType _ -> this.Error("Type tests do not support F# function type, check against WebSharper.JavaScript.Function.")   
+        | _ ->  this.Error("Failed to compile a type check.")
