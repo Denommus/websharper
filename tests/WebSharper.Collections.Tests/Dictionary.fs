@@ -28,6 +28,15 @@ open WebSharper.Testing
 [<JavaScript>]
 type Foo = {Foo:string}
 
+[<JavaScript; CustomEquality; NoComparison>]
+type Bar = 
+    {Bar:string}
+    override this.GetHashCode() = 0
+    override this.Equals(o) =
+        match o with 
+        | :? Bar as o -> this.Bar = o.Bar
+        | _ -> false
+
 [<JavaScript>]
 let Tests =
     TestCategory "Dictionary" {
@@ -114,6 +123,16 @@ let Tests =
                     ix <- ix + 1
             equal vArr [| 1; 2 |]
             equal (Array.map (fun o -> o.Foo) kArr) [| "1"; "2" |]
+        }
+
+        Test "Hashing keys" {
+            let d = Dictionary<Bar, string>()
+            let b1 = { Bar = "1" }
+            let b2 = { Bar = "2" }
+            d.Add(b1, "foo");
+            notEqual b1 b2
+            equal (hash b1) (hash b2)
+            isFalse (d.ContainsKey b2)
         }
 
     }
