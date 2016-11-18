@@ -152,47 +152,55 @@ type FixCtorTransformer(?thisExpr) =
 let fixCtor expr =
     FixCtorTransformer().TransformExpression(expr)
 
-let fsharpListDef =
-    TypeDefinition {
-        Assembly = "FSharp.Core"
-        FullName = "Microsoft.FSharp.Collections.FSharpList`1"  
-    }
+module Definitions =
+    let List =
+        TypeDefinition {
+            Assembly = "FSharp.Core"
+            FullName = "Microsoft.FSharp.Collections.FSharpList`1"  
+        }
 
-let emptyListDef =
-    Method {
-        MethodName = "get_Empty"
-        Parameters = []
-        ReturnType = GenericType fsharpListDef [ TypeParameter 0 ]
-        Generics = 0      
-    }
+    let ListEmpty =
+        Method {
+            MethodName = "get_Empty"
+            Parameters = []
+            ReturnType = GenericType List [ TypeParameter 0 ]
+            Generics = 0      
+        }
 
-let listModuleDef =
-    TypeDefinition {
-        Assembly = "FSharp.Core"
-        FullName = "Microsoft.FSharp.Collections.ListModule"
-    }
+    let ListModule =
+        TypeDefinition {
+            Assembly = "FSharp.Core"
+            FullName = "Microsoft.FSharp.Collections.ListModule"
+        }
 
-let listOfArrayDef =
-    Method {
-        MethodName = "OfArray"
-        Parameters = [ ArrayType (TypeParameter 0, 1) ]
-        ReturnType = GenericType fsharpListDef [ TypeParameter 0 ]
-        Generics = 1      
-    }
+    let ListOfArray =
+        Method {
+            MethodName = "OfArray"
+            Parameters = [ ArrayType (TypeParameter 0, 1) ]
+            ReturnType = GenericType List [ TypeParameter 0 ]
+            Generics = 1      
+        }
 
-let sysArrayDef =
-    TypeDefinition {
-        Assembly = "mscorlib"
-        FullName = "System.Array"
-    }
+    let Array =
+        TypeDefinition {
+            Assembly = "mscorlib"
+            FullName = "System.Array"
+        }
 
-let arrayLengthDef =
-    Method {
-        MethodName = "get_Length"
-        Parameters = []
-        ReturnType = NonGenericType Definitions.Int
-        Generics = 0        
-    }
+    let ArrayLength =
+        Method {
+            MethodName = "get_Length"
+            Parameters = []
+            ReturnType = NonGenericType Definitions.Int
+            Generics = 0        
+        }
+
+    let Operators =
+        TypeDefinition {
+            Assembly = "FSharp.Core"
+            FullName = "Microsoft.FSharp.Core.Operators"
+        }
+    
 
 let newId() = Id.New(mut = false)
 let namedId (i: FSharpMemberOrFunctionOrValue) =
@@ -239,9 +247,9 @@ let removeListOfArray (argType: FSharpType) (expr: Expression) =
     if isSeq argType then
         match IgnoreExprSourcePos expr with
         | Call (None, td, meth, [ NewArray _ as arr ]) 
-            when td.Entity = listModuleDef && meth.Entity = listOfArrayDef  ->
+            when td.Entity = Definitions.ListModule && meth.Entity = Definitions.ListOfArray  ->
                 arr
-        | NewUnionCase(td, "Empty", []) when td.Entity = fsharpListDef ->
+        | NewUnionCase(td, "Empty", []) when td.Entity = Definitions.List ->
             NewArray []
         | _ -> expr
     else expr
@@ -610,6 +618,9 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 let call =
                     match sr.ReadMember meth with
                     | Member.Method (isInstance, m) -> 
+                        match FSharpOptimizations.OptimizeCalls td m args with
+                        | Some res -> res
+                        | _ ->
                         let mt = Generic m (methodGenerics |> List.map (sr.ReadType env.TParams))
                         if isInstance then
                             Call (Option.map tr this, t, mt, args)
@@ -720,7 +731,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 match sr.ReadType env.TParams typ with
                 | ConcreteType ct -> ct
                 | _ -> parsefailf "Expected a union type"
-            if t.Entity = fsharpListDef then
+            if t.Entity = Definitions.List then
                 let rec getItems acc e =
                     match e with 
                     | P.NewUnionCase (_, _, [h; t]) ->
@@ -734,7 +745,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 | [h; r] -> 
                     match getItems [ h ] r with
                     | Some fromArr -> 
-                        Call(None, NonGeneric listModuleDef, NonGeneric listOfArrayDef, [ NewArray (fromArr |> List.map tr) ])    
+                        Call(None, NonGeneric Definitions.ListModule, NonGeneric Definitions.ListOfArray, [ NewArray (fromArr |> List.map tr) ])    
                     | None ->
                         NewUnionCase(t, case.CompiledName, exprs |> List.map tr) 
                 | _ -> parsefailf "Invalid number of union fields for FSharpList"
@@ -990,7 +1001,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
         | P.ILAsm ("[AI_ldnull; AI_cgt_un]", [], [ arr ]) ->
             tr arr  
         | P.ILAsm ("[I_ldlen; AI_conv DT_I4]", [], [ arr ]) ->
-            Call(Some (tr arr), NonGeneric sysArrayDef, NonGeneric arrayLengthDef, [])
+            Call(Some (tr arr), NonGeneric Definitions.Array, NonGeneric Definitions.ArrayLength, [])
         | P.ILAsm (s, _, _) ->
             parsefailf "Unrecognized ILAsm: %s" s
         | P.ILFieldGet _ -> parsefailf "F# pattern not handled: ILFieldGet"

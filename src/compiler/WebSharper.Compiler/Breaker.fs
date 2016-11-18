@@ -391,10 +391,9 @@ let rec breakExpr expr : Broken<BreakResult> =
             let brB = br b
             match brB.Body with
             | ResultVar v ->
-                { 
+                { brB with
                     Body = ResultExpr Undefined
                     Statements = brB.Statements |> List.map (TransformVarSets(v, id).TransformStatement)
-                    Variables = brB.Variables    
                 }
             | ResultExpr e ->
                 { brB with

@@ -1073,6 +1073,7 @@ module ExtraForms =
     let (|Lambda|_|) expr =
         match expr with
         | Function (a, I.Return b) -> Some (a, b)
+        | Function (a, I.ExprStatement b) -> Some (a, Sequential [ b; Value Null ])
         | _ -> None
 
     let CurriedLambda (a, b) = List.foldBack (fun a b -> Function ([a], Return b)) a b

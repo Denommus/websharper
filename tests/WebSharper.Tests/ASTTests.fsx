@@ -358,13 +358,14 @@ let translate source =
                 c.StaticConstructor |> Option.map snd |> Option.toList |> Seq.ofList
             ]
         )
-        |> List.ofSeq
-
+        |> List.ofSeq 
+        
     let errors =
         [
             for pos, e in comp.Errors -> pos, string e, true
             for pos, e in comp.Warnings -> pos, string e, false
         ]
+    errors |> List.iter (printfn "%A")
 
     let pkg = WebSharper.Compiler.Packager.packageAssembly metadata currentMeta false
     
@@ -380,10 +381,27 @@ module M
 
 open WebSharper
 
-[<JavaScript; Pure>]
-let f x =
-    x + 1
+//[<Inline "void $x">]
+[<Inline>]
+let ignore x = ()
 
 [<JavaScript>]
-let g = f >> f >> f
+let f () = 
+    printfn "hi"
+    1 + 1
+
+[<JavaScript>]
+let g() = ignore (f ())
+
+do g()
     """
+
+let translateQ q =
+    let comp = 
+        WebSharper.Compiler.Compilation(metadata, false, UseLocalMacros = false)
+    WebSharper.Compiler.QuotationReader.readExpression comp q
+
+let f x y = x + y
+
+translateQ <@ 1 |> ignore @> 
+|> WebSharper.Core.AST.Debug.PrintExpression
