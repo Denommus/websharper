@@ -57,7 +57,8 @@ type ExamineClosures (comp: Compilation) =
 
     let mutable outerScope = true
     let mutable scopeChain = []
-    let mutable topScopeVars = HashSet()
+    let topScopeVars = HashSet()
+    let movedToTop = ResizeArray()
 
     member this.EnterScope(args, body) =
         scopeChain <- 
@@ -81,20 +82,22 @@ type ExamineClosures (comp: Compilation) =
     member this.ExitScope() =
         let s = List.head scopeChain
         scopeChain <- List.tail scopeChain
-        match scopeChain with
-        | c :: _ ->
-            if s.Captured.Count = 0 then
-                this.Warning("This function captures no variables. Consider moving it to top scope.")
-                s.Captured |> Seq.iter (c.Captured.Add >> ignore)
-            else
-                for cv in s.Captured do
-                    if not (c.Vars.Contains cv) then
-                        c.Captured.Add cv |> ignore
-                if s.Captured |> Seq.forall (c.Vars.Contains >> not) then
-                    this.Warning("This function captures no variables from parent scope. Consider moving it to higher scope.")
+        let res =
+            match scopeChain with
+            | c :: _ ->
+                if s.Captured.Count = 0 then
+                    // This function captures no variables. Move to top scope.
+                    Experimental.MoveNonCapturingFunctionsToTop
                 else
-                    c.CaptureSets.Add(Set s.Captured, this.CurrentSourcePos)
-        | _ -> ()
+                    for cv in s.Captured do
+                        if not (c.Vars.Contains cv) then
+                            c.Captured.Add cv |> ignore
+                    if s.Captured |> Seq.forall (c.Vars.Contains >> not) then
+                        this.Warning("This function captures no variables from parent scope. Consider moving it to higher scope.")
+                    else
+                        c.CaptureSets.Add(Set s.Captured, this.CurrentSourcePos)
+                    false
+            | _ -> false
         let retained = s.CaptureSets |> Seq.map fst |> Set.unionMany
         for cs, pos in s.CaptureSets do
             let diff = retained - cs
@@ -102,26 +105,32 @@ type ExamineClosures (comp: Compilation) =
                 let names =
                     diff |> Seq.map (fun i -> defaultArg i.Name "_") |> String.concat ", "
                 this.Warning(pos, "This function do not use all retained variables through capture: " + names)    
+        res
 
     override this.TransformFuncDeclaration(f, args, body) =
         // top scope is not a named function
         this.EnterScope(args, body)
         let res = base.TransformFuncDeclaration(f, args, body)
-        this.ExitScope()
-        res
+        if this.ExitScope() then
+            movedToTop.Add(res)  
+            Empty  
+        else res
 
     override this.TransformFunction(args, body) =
         if outerScope then
             outerScope <- false
             CollectVariables.ScopeVars(body) |> Seq.iter (topScopeVars.Add >> ignore)
-            let res = base.TransformFunction(args, body)
+            let trBody = this.TransformStatement body
             outerScope <- true
-            res
+            Function(args, CombineStatements (trBody :: List.ofSeq movedToTop))
         else
             this.EnterScope(args, body)
-            let res = Function(args, this.TransformStatement body)
-            this.ExitScope()
-            res
+            let trBody = this.TransformStatement body
+            if this.ExitScope() then
+                let f = Id.New("f", mut = false)
+                movedToTop.Add(FuncDeclaration(f, args, body))
+                Var f
+            else Function(args, trBody)
 
     override this.TransformId(i) =
         match scopeChain with

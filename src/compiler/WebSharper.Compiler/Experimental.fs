@@ -1,4 +1,4 @@
-// $begin{copyright}
+﻿// $begin{copyright}
 //
 // This file is part of WebSharper
 //
@@ -18,23 +18,7 @@
 //
 // $end{copyright}
 
-/// Client-side (JavaScript) code.
-module Website.Client
+module WebSharper.Compiler.Experimental
+    let mutable OptimizeFSharpFuncOperators = false
+    let mutable MoveNonCapturingFunctionsToTop = false
 
-open WebSharper
-open WebSharper.JavaScript
-open WebSharper.Sitelets.Tests.Client
-
-[<JavaScript>]
-let EntryPoint () =
-    Console.Log("Loaded OK")
-    Elt("span", "")
-
-[<JavaScript>]
-let RunAllTests () =
-    Console.Log("Running Tests...")
-    WebSharper.Tests.Main.RunTests()
-    WebSharper.Collections.Tests.Main.RunTests()
-    WebSharper.Html5.Tests.Tests |> ignore
-//    WebSharper.Web.Tests.Main.RunTests()
-    Elt("span", "")

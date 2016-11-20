@@ -104,17 +104,14 @@ let private scheduler = Scheduler()
 [<JavaScript>]
 let internal defCTS = ref(new System.Threading.CancellationTokenSource())
 
-[<JavaScript>]
 [<Inline>]
 let fork action = scheduler.Fork action
 
-[<JavaScript>]
 [<Inline>]
 let private cancel c = c.k (Cc (new OCE(As<System.Threading.CancellationToken> c.ct)))
 
-[<JavaScript>]
+[<Inline>]
 let private checkCancel r =
-    ()
     fun c -> if c.ct.IsCancellationRequested then cancel c else r c
 
 [<JavaScript>]

@@ -82,6 +82,7 @@ let (|LetFunction3|_|) x =
     r [] x
 
 let OptimizeCalls td (md: Method) args = 
+    if not Experimental.OptimizeFSharpFuncOperators then None else
     if td = Definitions.Operators then
         match md.Value.MethodName with
         | "op_PipeRight" ->

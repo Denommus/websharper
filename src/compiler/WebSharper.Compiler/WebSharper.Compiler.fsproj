@@ -18,6 +18,7 @@
     <Compile Include="Constants.fs" />
     <Compile Include="Utility.fs" />
     <Compile Include="Helpers.fs" />
+    <Compile Include="Experimental.fs" />
     <Compile Include="AttributeReader.fs" />
     <Compile Include="CompilationHelpers.fs" />
     <Compile Include="Breaker.fsi" />
