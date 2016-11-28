@@ -202,11 +202,15 @@ let TransformAssembly (prototypes: IDictionary<string, string>) (assembly : Mono
                     a.ConstructorArguments.[0].Value :?> string
                 )
 
-            let isPure =
-                meth.CustomAttributes |> 
-                Seq.exists (fun a -> 
-                    a.AttributeType.FullName = "WebSharper.PureAttribute" 
-                )
+            let opts =
+                {
+                    IsPure =
+                        meth.CustomAttributes |> 
+                        Seq.exists (fun a -> 
+                            a.AttributeType.FullName = "WebSharper.PureAttribute" 
+                        )
+                    CurriedArgs = None
+                }
                                     
             if Option.isSome inlAttr || not (List.isEmpty macros) then
                 let vars = meth.Parameters |> Seq.map (fun p -> Id.New p.Name) |> List.ofSeq
@@ -215,7 +219,7 @@ let TransformAssembly (prototypes: IDictionary<string, string>) (assembly : Mono
                         Some (Id.New "this")    
                     else 
                         None
-                let parsed = inlAttr |> Option.map (WebSharper.Compiler.Recognize.createInline thisArg vars isPure) 
+                let parsed = inlAttr |> Option.map (WebSharper.Compiler.Recognize.createInline thisArg vars opts.IsPure) 
 
                 let kind =
                     if List.isEmpty macros then Inline else
@@ -237,7 +241,7 @@ let TransformAssembly (prototypes: IDictionary<string, string>) (assembly : Mono
                         graph.AddEdge(cNode, ResourceNode req)
                     
                     try 
-                        constructors.Add(cdef, (kind, isPure, body))
+                        constructors.Add(cdef, (kind, opts, body))
                     with _ ->
                         failwithf "Duplicate definition for constructor of %s, arguments: %s" def.Value.FullName (string cdef.Value)
                     
@@ -256,7 +260,7 @@ let TransformAssembly (prototypes: IDictionary<string, string>) (assembly : Mono
                     
                     if not meth.IsStatic then hasInstanceMethod <- true
 
-                    try methods.Add(mdef, (kind, isPure, body))
+                    try methods.Add(mdef, (kind, opts, body))
                     with _ ->
                         failwithf "Duplicate definition for method of %s: %s" def.Value.FullName (string mdef.Value)
         

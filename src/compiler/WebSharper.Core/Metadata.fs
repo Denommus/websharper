@@ -121,14 +121,26 @@ type CompiledField =
     | StaticField of Address
     | IndexedField of int
 
+type Optimizations =
+    {
+        IsPure : bool
+        CurriedArgs : option<IDictionary<int, list<int>>>
+    }
+
+    static member None =
+        {
+            IsPure = false
+            CurriedArgs = None
+        }
+
 type ClassInfo =
     {
         Address : option<Address>
         BaseClass : option<TypeDefinition>
-        Constructors : IDictionary<Constructor, CompiledMember * bool * Expression>
+        Constructors : IDictionary<Constructor, CompiledMember * Optimizations * Expression>
         Fields : IDictionary<string, CompiledField>
         StaticConstructor : option<Address * Expression>
-        Methods : IDictionary<Method, CompiledMember * bool * Expression>
+        Methods : IDictionary<Method, CompiledMember * Optimizations * Expression>
         Implementations : IDictionary<TypeDefinition * Method, CompiledMember * Expression>
         HasWSPrototype : bool // is the class defined in WS so it has Runtime.Class created prototype
         Macros : list<TypeDefinition * option<ParameterObject>>

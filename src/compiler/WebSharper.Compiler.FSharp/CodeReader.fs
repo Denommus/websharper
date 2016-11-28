@@ -30,6 +30,7 @@ type VarKind =
     | LocalVar 
     | ByRefArg
     | ThisArg
+    | FuncArg of list<int>
          
 let rec getOrigDef (td: FSharpEntity) =
     if td.IsFSharpAbbreviation then getOrigDef td.AbbreviatedType.TypeDefinition else td 
@@ -78,6 +79,19 @@ let isByRef (t: FSharpType) =
     let t = getOrigType t
     if t.IsTupleType || t.IsFunctionType then false else
     t.HasTypeDefinition && t.TypeDefinition.IsByRef
+
+let getFuncArg t =
+    let rec get acc (t: FSharpType) =
+        if t.IsFunctionType then
+            let a = t.GenericArguments.[0] 
+            let r = t.GenericArguments.[1] 
+            let i = if a.IsTupleType then a.GenericArguments.Count else 1
+            get (i :: acc) r 
+        else
+            match acc with
+            | [] | [1] -> None
+            | _ -> Some (List.rev acc)
+    get [] t    
 
 exception ParseError of message: string with
     override this.Message = this.message 
@@ -468,6 +482,7 @@ type Environment =
         Exception : option<Id>
         Compilation : Compilation
         SymbolReader : SymbolReader
+        ApplCount : option<int>
     }
     static member New(vars, tparams, comp, sr) = 
 //        let tparams = Array.ofSeq tparams
@@ -479,6 +494,7 @@ type Environment =
             Exception = None
             Compilation = comp
             SymbolReader = sr 
+            ApplCount = None
         }
 
     member this.WithVar(i: Id, v: FSharpMemberOrFunctionOrValue, ?k) =
@@ -550,24 +566,33 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
             | CallNeedingMoreArgs(thisObj, td, m, ca) ->
                 Call(thisObj, td, m, ca @ (args |> List.map tr))
             | trFunc ->
-                let appl f x = Application (f, [x], false, Some 1)
                 match args with
-                | [a] ->
+                | [a] when isUnit a.Type ->
                     let trA = tr a |> removeListOfArray a.Type
-                    if isUnit a.Type then
-                        match IgnoreExprSourcePos trA with
-                        | Undefined | Value Null -> Application (trFunc, [], false, Some 0)
-                        | _ -> Sequential [ trA; Application (trFunc, [], false, Some 0) ]
-                    else appl trFunc trA
+                    match IgnoreExprSourcePos trA with
+                    | Undefined | Value Null -> Application (trFunc, [], false, Some 0)
+                    | _ -> Sequential [ trA; Application (trFunc, [], false, Some 0) ]
                 | _ ->
                     let trArgs = args |> List.map (fun a -> tr a |> removeListOfArray a.Type)
-                    match trArgs with
-                    | [ a; b ] ->
-                        appl (appl trFunc a) b
-                    | [ a; b; c ] ->
-                        appl (appl (appl trFunc a) b) c
-                    | _ ->
-                        JSRuntime.Apply trFunc trArgs
+                    CurriedApplication(trFunc, trArgs)
+//                let appl f x = Application (f, [x], false, Some 1)
+//                match args with
+//                | [a] ->
+//                    let trA = tr a |> removeListOfArray a.Type
+//                    if isUnit a.Type then
+//                        match IgnoreExprSourcePos trA with
+//                        | Undefined | Value Null -> Application (trFunc, [], false, Some 0)
+//                        | _ -> Sequential [ trA; Application (trFunc, [], false, Some 0) ]
+//                    else appl trFunc trA
+//                | _ ->
+//                    let trArgs = args |> List.map (fun a -> tr a |> removeListOfArray a.Type)
+//                    match trArgs with
+//                    | [ a; b ] ->
+//                        appl (appl trFunc a) b
+//                    | [ a; b; c ] ->
+//                        appl (appl (appl trFunc a) b) c
+//                    | _ ->
+//                        JSRuntime.Apply trFunc trArgs
         // eliminating unneeded compiler-generated closures
         | CompGenClosure value ->
             tr value

@@ -378,12 +378,22 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         | NotCompiled (i, notVirtual) -> 
             let res = this.TransformExpression expr |> removeSourcePosFromInlines i |> breakExpr
             let res = this.CheckResult(res)
-            comp.AddCompiledMethod(typ, meth, modifyDelayedInlineInfo i, notVirtual && isPureFunction res, res)
+            let opts =
+                {
+                    IsPure = notVirtual && isPureFunction res
+                    CurriedArgs = None
+                } : M.Optimizations
+            comp.AddCompiledMethod(typ, meth, modifyDelayedInlineInfo i, opts, res)
         | NotGenerated (g, p, i, notVirtual) ->
             let m = GeneratedMethod(typ, meth)
             let res = this.Generate (g, p, m)
             let res = this.CheckResult(res)
-            comp.AddCompiledMethod(typ, meth, modifyDelayedInlineInfo i, notVirtual && isPureFunction res, res)
+            let opts =
+                {
+                    IsPure = notVirtual && isPureFunction res
+                    CurriedArgs = None
+                } : M.Optimizations
+            comp.AddCompiledMethod(typ, meth, modifyDelayedInlineInfo i, opts, res)
 
     member this.CompileImplementation(info, expr, typ, intf, meth) =
         currentNode <- M.ImplementationNode(typ, intf, meth)
@@ -411,12 +421,22 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         | NotCompiled (i, _) -> 
             let res = this.TransformExpression expr |> removeSourcePosFromInlines i |> breakExpr
             let res = this.CheckResult(res)
-            comp.AddCompiledConstructor(typ, ctor, modifyDelayedInlineInfo i, isPureFunction res, res)
+            let opts =
+                {
+                    IsPure = isPureFunction res
+                    CurriedArgs = None
+                } : M.Optimizations
+            comp.AddCompiledConstructor(typ, ctor, modifyDelayedInlineInfo i, opts, res)
         | NotGenerated (g, p, i, _) ->
             let m = GeneratedConstructor(typ, ctor)
             let res = this.Generate (g, p, m)
             let res = this.CheckResult(res)
-            comp.AddCompiledConstructor(typ, ctor, modifyDelayedInlineInfo i, isPureFunction res, res)
+            let opts =
+                {
+                    IsPure = isPureFunction res
+                    CurriedArgs = None
+                } : M.Optimizations
+            comp.AddCompiledConstructor(typ, ctor, modifyDelayedInlineInfo i, opts, res)
 
     member this.CompileStaticConstructor(addr, expr, typ) =
         currentNode <- M.TypeNode typ
@@ -467,7 +487,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
 
     member this.AddTypeDependency(typ) =
         let typ = comp.FindProxied typ
-        if comp.TryLookupClassInfo typ |> Option.isSome then
+        if comp.TryLookupClassInfo typ then
             comp.Graph.AddEdge(currentNode, M.TypeNode typ)
 
     member this.AddConstructorDependency(typ, ctor) =
@@ -485,7 +505,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             else
                 comp.Graph.AddEdge(currentNode, M.MethodNode (typ, meth))
         else
-            if comp.TryLookupClassInfo typ |> Option.isSome then
+            if comp.TryLookupClassInfo typ then
                 comp.Graph.AddEdge(currentNode, M.TypeNode typ)
 
     member this.Error(err) =
@@ -634,8 +654,8 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                     this.Error("Static method on dynamic object not tranlated: " + n)
         else
         match comp.LookupMethodInfo(typ.Entity, meth.Entity) with
-        | Compiled (info, isPure, expr) ->
-            this.CompileCall(info, isPure, expr, thisObj, typ, meth, args)
+        | Compiled (info, opts, expr) ->
+            this.CompileCall(info, opts.IsPure, expr, thisObj, typ, meth, args)
         | Compiling (info, expr) ->
             if isInline info then
                 this.AnotherNode().CompileMethod(info, expr, typ.Entity, meth.Entity)
@@ -662,7 +682,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         match typ with
         | ConcreteType ct ->
             match comp.TryLookupClassInfo ct.Entity with
-            | None -> 
+            | None ->
                 this.Error (TypeNotFound ct.Entity)
             | Some cls ->
                 let mi = meth.Entity.Value
@@ -854,8 +874,8 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
     override this.TransformCtor(typ, ctor, args) =
         let node = comp.LookupConstructorInfo(typ.Entity, ctor)
         match node with
-        | Compiled (info, isPure, expr) -> 
-            this.CompileCtor(info, isPure, expr, typ, ctor, args)
+        | Compiled (info, opts, expr) -> 
+            this.CompileCtor(info, opts.IsPure, expr, typ, ctor, args)
         | Compiling (info, expr) ->
             if isInline info then
                 this.AnotherNode().CompileConstructor(info, expr, typ.Entity, ctor)

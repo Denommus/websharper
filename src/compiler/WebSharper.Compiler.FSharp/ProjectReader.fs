@@ -355,7 +355,12 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                                 for p in a ->    
                                     p, 
                                     (CodeReader.namedId p, 
-                                        if CodeReader.isByRef p.FullType then CodeReader.ByRefArg else CodeReader.LocalVar)
+                                        if CodeReader.isByRef p.FullType then CodeReader.ByRefArg 
+                                        else
+                                            match CodeReader.getFuncArg p.FullType with
+                                            | None -> CodeReader.LocalVar
+                                            | Some c -> CodeReader.FuncArg c
+                                    )
                             ]
                         let tparams = meth.GenericParameters |> Seq.map (fun p -> p.Name) |> List.ofSeq 
                         let env = CodeReader.Environment.New (argsAndVars, tparams, comp, sr)  

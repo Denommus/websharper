@@ -107,6 +107,8 @@ and Expression =
     | Call of ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Method:Concrete<Method> * Arguments:list<Expression>
     /// Temporary - Partial application, workaround for FCS issue #414
     | CallNeedingMoreArgs of ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Method:Concrete<Method> * Arguments:list<Expression>
+    /// Temporary - F# function application
+    | CurriedApplication of Func:Expression * Arguments:list<Expression>
     /// .NET - Constructor call
     | Ctor of TypeDefinition:Concrete<TypeDefinition> * Ctor:Constructor * Arguments:list<Expression>
     /// .NET - Base constructor call
@@ -315,6 +317,9 @@ type Transformer() =
     /// Temporary - Partial application, workaround for FCS issue #414
     abstract TransformCallNeedingMoreArgs : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Method:Concrete<Method> * Arguments:list<Expression> -> Expression
     override this.TransformCallNeedingMoreArgs (a, b, c, d) = CallNeedingMoreArgs (Option.map this.TransformExpression a, b, c, List.map this.TransformExpression d)
+    /// Temporary - F# function application
+    abstract TransformCurriedApplication : Func:Expression * Arguments:list<Expression> -> Expression
+    override this.TransformCurriedApplication (a, b) = CurriedApplication (this.TransformExpression a, List.map this.TransformExpression b)
     /// .NET - Constructor call
     abstract TransformCtor : TypeDefinition:Concrete<TypeDefinition> * Ctor:Constructor * Arguments:list<Expression> -> Expression
     override this.TransformCtor (a, b, c) = Ctor (a, b, List.map this.TransformExpression c)
@@ -503,6 +508,7 @@ type Transformer() =
         | Base  -> this.TransformBase ()
         | Call (a, b, c, d) -> this.TransformCall (a, b, c, d)
         | CallNeedingMoreArgs (a, b, c, d) -> this.TransformCallNeedingMoreArgs (a, b, c, d)
+        | CurriedApplication (a, b) -> this.TransformCurriedApplication (a, b)
         | Ctor (a, b, c) -> this.TransformCtor (a, b, c)
         | BaseCtor (a, b, c, d) -> this.TransformBaseCtor (a, b, c, d)
         | CopyCtor (a, b) -> this.TransformCopyCtor (a, b)
@@ -637,6 +643,9 @@ type Visitor() =
     /// Temporary - Partial application, workaround for FCS issue #414
     abstract VisitCallNeedingMoreArgs : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Method:Concrete<Method> * Arguments:list<Expression> -> unit
     override this.VisitCallNeedingMoreArgs (a, b, c, d) = Option.iter this.VisitExpression a; (); (); List.iter this.VisitExpression d
+    /// Temporary - F# function application
+    abstract VisitCurriedApplication : Func:Expression * Arguments:list<Expression> -> unit
+    override this.VisitCurriedApplication (a, b) = this.VisitExpression a; List.iter this.VisitExpression b
     /// .NET - Constructor call
     abstract VisitCtor : TypeDefinition:Concrete<TypeDefinition> * Ctor:Constructor * Arguments:list<Expression> -> unit
     override this.VisitCtor (a, b, c) = (); (); List.iter this.VisitExpression c
@@ -823,6 +832,7 @@ type Visitor() =
         | Base  -> this.VisitBase ()
         | Call (a, b, c, d) -> this.VisitCall (a, b, c, d)
         | CallNeedingMoreArgs (a, b, c, d) -> this.VisitCallNeedingMoreArgs (a, b, c, d)
+        | CurriedApplication (a, b) -> this.VisitCurriedApplication (a, b)
         | Ctor (a, b, c) -> this.VisitCtor (a, b, c)
         | BaseCtor (a, b, c, d) -> this.VisitBaseCtor (a, b, c, d)
         | CopyCtor (a, b) -> this.VisitCopyCtor (a, b)
@@ -911,6 +921,7 @@ module IgnoreSourcePos =
     let (|Base|_|) x = match ignoreExprSourcePos x with Base  -> Some () | _ -> None
     let (|Call|_|) x = match ignoreExprSourcePos x with Call (a, b, c, d) -> Some (a, b, c, d) | _ -> None
     let (|CallNeedingMoreArgs|_|) x = match ignoreExprSourcePos x with CallNeedingMoreArgs (a, b, c, d) -> Some (a, b, c, d) | _ -> None
+    let (|CurriedApplication|_|) x = match ignoreExprSourcePos x with CurriedApplication (a, b) -> Some (a, b) | _ -> None
     let (|Ctor|_|) x = match ignoreExprSourcePos x with Ctor (a, b, c) -> Some (a, b, c) | _ -> None
     let (|BaseCtor|_|) x = match ignoreExprSourcePos x with BaseCtor (a, b, c, d) -> Some (a, b, c, d) | _ -> None
     let (|CopyCtor|_|) x = match ignoreExprSourcePos x with CopyCtor (a, b) -> Some (a, b) | _ -> None
@@ -996,6 +1007,7 @@ module Debug =
         | Base  -> "Base" + ""
         | Call (a, b, c, d) -> "Call" + "(" + defaultArg (Option.map PrintExpression a) "_" + ", " + b.Entity.Value.FullName + ", " + c.Entity.Value.MethodName + ", " + "[" + String.concat "; " (List.map PrintExpression d) + "]" + ")"
         | CallNeedingMoreArgs (a, b, c, d) -> "CallNeedingMoreArgs" + "(" + defaultArg (Option.map PrintExpression a) "_" + ", " + b.Entity.Value.FullName + ", " + c.Entity.Value.MethodName + ", " + "[" + String.concat "; " (List.map PrintExpression d) + "]" + ")"
+        | CurriedApplication (a, b) -> "CurriedApplication" + "(" + PrintExpression a + ", " + "[" + String.concat "; " (List.map PrintExpression b) + "]" + ")"
         | Ctor (a, b, c) -> "Ctor" + "(" + a.Entity.Value.FullName + ", " + ".ctor" + ", " + "[" + String.concat "; " (List.map PrintExpression c) + "]" + ")"
         | BaseCtor (a, b, c, d) -> "BaseCtor" + "(" + PrintExpression a + ", " + b.Entity.Value.FullName + ", " + ".ctor" + ", " + "[" + String.concat "; " (List.map PrintExpression d) + "]" + ")"
         | CopyCtor (a, b) -> "CopyCtor" + "(" + a.Value.FullName + ", " + PrintExpression b + ")"
