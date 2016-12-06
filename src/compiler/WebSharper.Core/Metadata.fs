@@ -121,16 +121,21 @@ type CompiledField =
     | StaticField of Address
     | IndexedField of int
 
+type FuncArgOptimization =
+    | NotOptimizedFuncArg
+    | CurriedFuncArg of int    
+    | TupledFuncArg of int    
+
 type Optimizations =
     {
         IsPure : bool
-        CurriedArgs : option<list<int>[]>
+        FuncArgs : option<list<FuncArgOptimization>>
     }
 
     static member None =
         {
             IsPure = false
-            CurriedArgs = None
+            FuncArgs = None
         }
 
 type ClassInfo =

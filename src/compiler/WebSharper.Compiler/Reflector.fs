@@ -209,7 +209,7 @@ let TransformAssembly (prototypes: IDictionary<string, string>) (assembly : Mono
                         Seq.exists (fun a -> 
                             a.AttributeType.FullName = "WebSharper.PureAttribute" 
                         )
-                    CurriedArgs = None
+                    FuncArgs = None
                 }
                                     
             if Option.isSome inlAttr || not (List.isEmpty macros) then

@@ -876,15 +876,7 @@ type Compilation(meta: Info, ?hasGraph) =
         let toCompilingMember (nr : NotResolvedMethod) (comp: CompiledMember) =
             match nr.Generator with
             | Some (g, p) -> NotGenerated(g, p, comp, notVirtual nr.Kind)
-            | _ -> 
-                let curriedArgs = 
-                    nr.CurriedArgs |> Option.map (fun ca ->
-                        ca, 
-                        (nr.Args, ca) ||> Seq.map2 (fun a c ->
-                            if List.isEmpty c then None else Some (a, c)
-                        ) |> Seq.choose id |> dict
-                    )
-                NotCompiled (comp, notVirtual nr.Kind, curriedArgs)
+            | _ -> NotCompiled (comp, notVirtual nr.Kind, nr.FuncArgs)
             
         let setClassAddress typ clAddr =
             let res = classes.[typ]
@@ -965,7 +957,7 @@ type Compilation(meta: Info, ?hasGraph) =
                             try
                                 let isPure =
                                     nr.Pure || (Option.isNone cc.StaticConstructor && isPureFunction nr.Body)
-                                let opts = { IsPure = isPure; CurriedArgs = nr.CurriedArgs }
+                                let opts = { IsPure = isPure; FuncArgs = nr.FuncArgs }
                                 cc.Constructors.Add (cDef, (comp, opts, addCctorCall typ cc nr.Body))
                             with _ ->
                                 printerrf "Duplicate definition for constructor of %s" typ.Value.FullName
@@ -977,7 +969,7 @@ type Compilation(meta: Info, ?hasGraph) =
                             try
                                 let isPure =
                                     nr.Pure || (notVirtual nr.Kind && Option.isNone cc.StaticConstructor && isPureFunction nr.Body)
-                                let opts = { IsPure = isPure; CurriedArgs = nr.CurriedArgs }
+                                let opts = { IsPure = isPure; FuncArgs = nr.FuncArgs }
                                 cc.Methods.Add (mDef, (comp, opts, addCctorCall typ cc nr.Body))
                             with _ ->
                                 printerrf "Duplicate definition for method %s.%s" typ.Value.FullName mDef.Value.MethodName
@@ -1042,7 +1034,7 @@ type Compilation(meta: Info, ?hasGraph) =
                 if nr.Compiled then
                     let isPure =
                         nr.Pure || (Option.isNone res.StaticConstructor && isPureFunction nr.Body)
-                    let opts = { IsPure = isPure; CurriedArgs = nr.CurriedArgs }
+                    let opts = { IsPure = isPure; FuncArgs = nr.FuncArgs }
                     res.Constructors.Add(cDef, (comp, opts, addCctorCall typ res nr.Body))
                 else
                     compilingConstructors.Add((typ, cDef), (toCompilingMember nr comp, addCctorCall typ res nr.Body))
@@ -1053,7 +1045,7 @@ type Compilation(meta: Info, ?hasGraph) =
                 if nr.Compiled then 
                     let isPure =
                         nr.Pure || (notVirtual nr.Kind && Option.isNone res.StaticConstructor && isPureFunction nr.Body)
-                    let opts = { IsPure = isPure; CurriedArgs = nr.CurriedArgs }
+                    let opts = { IsPure = isPure; FuncArgs = nr.FuncArgs }
                     res.Methods.Add(mDef, (comp, opts, addCctorCall typ res nr.Body))
                 else
                     compilingMethods.Add((typ, mDef), (toCompilingMember nr comp, addCctorCall typ res nr.Body))
@@ -1086,7 +1078,7 @@ type Compilation(meta: Info, ?hasGraph) =
                 | _ ->
                     if nr.Compiled then 
                         let isPure = nr.Pure || isPureFunction nr.Body
-                        let opts = { IsPure = isPure; CurriedArgs = nr.CurriedArgs }
+                        let opts = { IsPure = isPure; FuncArgs = nr.FuncArgs }
                         res.Methods.Add(mDef, (comp, opts, addCctorCall typ res nr.Body))
                     else
                         compilingMethods.Add((typ, mDef), (toCompilingMember nr comp, addCctorCall typ res nr.Body))

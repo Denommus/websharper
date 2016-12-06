@@ -89,8 +89,9 @@ let getFuncArg t =
             get (i :: acc) r 
         else
             match acc with
-            | [] | [1] -> []
-            | _ -> List.rev acc
+            | [] | [1] -> M.NotOptimizedFuncArg
+            | [n] -> M.TupledFuncArg n
+            | _ -> M.CurriedFuncArg (List.length acc)
     get [] t    
 
 exception ParseError of message: string with
@@ -564,8 +565,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                         v, env.WithVar(v, arg)
                     ) 
                 let trBody = body |> transformExpression env
-                let isUnit = isUnit body.Type
-                trBody |> List.foldBack (fun v e -> lam [v] e isUnit) vars
+                trBody |> List.foldBack (fun v e -> lam [v] e (obj.ReferenceEquals(trBody, isUnit) && isUnit body.Type)) vars
 //                let f = lam vars trBody (isUnit body.Type)
 //                match vars.Length with
 //                | 2 -> JSRuntime.Curried2 f

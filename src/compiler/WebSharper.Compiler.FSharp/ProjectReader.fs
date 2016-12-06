@@ -335,6 +335,11 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
 
                 if stubs.Contains memdef then () else
                 let getBody isInline = 
+                    let noCurriedOpt =
+                        match memdef with
+                        | Member.Method _ 
+                        | Member.Constructor _ -> false
+                        | _ -> true
                     try
                         let fromRD = 
                             let hasRD =
@@ -370,7 +375,7 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                                         if CodeReader.isByRef p.FullType 
                                         then CodeReader.ByRefArg 
                                         else
-                                            if isInline then CodeReader.LocalVar
+                                            if noCurriedOpt then CodeReader.LocalVar
                                             else
                                                 match CodeReader.getFuncArg p.FullType with
                                                 | [] -> CodeReader.LocalVar
@@ -379,7 +384,7 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                             ]
                         // search for curried function arguments and register them
                         let curriedArgs =
-                            if isInline then None else
+                            if noCurriedOpt then None else
                             let mem =
                                 match memdef with
                                 | Member.Method (_, mdef) -> Some (ArgCurrying.Member.Method(def, mdef))

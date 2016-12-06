@@ -150,7 +150,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
     let mutable currentNode = M.AssemblyNode ("", false) // placeholder
     let mutable currentIsInline = false
     let mutable hasDelayedTransform = false
-    let mutable currentCurriedArgs = None
+    let mutable currentFuncArgs = None
 
     let modifyDelayedInlineInfo (info: M.CompiledMember) =
         if hasDelayedTransform then 
@@ -376,14 +376,14 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             )
         currentIsInline <- isInline info
         match info with
-        | NotCompiled (i, notVirtual, curriedArgs) ->
-            currentCurriedArgs <- curriedArgs
+        | NotCompiled (i, notVirtual, funcArgs) ->
+            currentFuncArgs <- funcArgs
             let res = this.TransformExpression expr |> removeSourcePosFromInlines i |> breakExpr
             let res = this.CheckResult(res)
             let opts =
                 {
                     IsPure = notVirtual && isPureFunction res
-                    CurriedArgs = curriedArgs |> Option.map fst
+                    FuncArgs = funcArgs
                 } : M.Optimizations
             comp.AddCompiledMethod(typ, meth, modifyDelayedInlineInfo i, opts, res)
         | NotGenerated (g, p, i, notVirtual) ->
@@ -393,7 +393,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             let opts =
                 {
                     IsPure = notVirtual && isPureFunction res
-                    CurriedArgs = None
+                    FuncArgs = None
                 } : M.Optimizations
             comp.AddCompiledMethod(typ, meth, modifyDelayedInlineInfo i, opts, res)
 
@@ -420,14 +420,14 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         else
         currentIsInline <- isInline info
         match info with
-        | NotCompiled (i, _, curriedArgs) -> 
-            currentCurriedArgs <- curriedArgs
+        | NotCompiled (i, _, funcArgs) -> 
+            currentFuncArgs <- funcArgs
             let res = this.TransformExpression expr |> removeSourcePosFromInlines i |> breakExpr
             let res = this.CheckResult(res)
             let opts =
                 {
                     IsPure = isPureFunction res
-                    CurriedArgs = curriedArgs |> Option.map fst
+                    FuncArgs = funcArgs
                 } : M.Optimizations
             comp.AddCompiledConstructor(typ, ctor, modifyDelayedInlineInfo i, opts, res)
         | NotGenerated (g, p, i, _) ->
@@ -437,7 +437,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             let opts =
                 {
                     IsPure = isPureFunction res
-                    CurriedArgs = None
+                    FuncArgs = None
                 } : M.Optimizations
             comp.AddCompiledConstructor(typ, ctor, modifyDelayedInlineInfo i, opts, res)
 
@@ -515,41 +515,34 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         comp.AddError(this.CurrentSourcePos, err)
         errorPlaceholder
 
-    member this.DeCurryArg (currying, expr) =
-        match currying with
-        | [] -> expr
-        | _ ->
-        let cargs = ResizeArray()
-        printfn "decurrying %A: %s" currying (Debug.PrintExpression expr)
-        let rec dc currying expr =
-            match currying with
-            | [] -> expr
-            | h :: r ->
-                if h > 1 then
-                    match expr with
-                    | Optimizations.TupledLambda (args, body, _) ->
-                        args |> List.iter cargs.Add
-                        dc r body
-                    | Optimizations.Lambda ([arg], body, _) ->
-                        let args = List.init h (fun _ -> Id.New(mut = false))
-                        args |> List.iter cargs.Add
-                        dc r (Let (arg, NewArray (args |> List.map Var), body))             
-                    | _ -> 
-                        expr
-                else
+    member this.OptimizeArg (opt, expr) =
+        match opt with
+        | M.NotOptimizedFuncArg -> expr
+        | M.CurriedFuncArg currying ->
+            let cargs = ResizeArray()
+            printfn "decurrying %A: %s" currying (Debug.PrintExpression expr)
+            let rec dc currying expr =
+                if currying = 0 then expr else
                     match expr with
                     | Optimizations.Lambda ([arg], body, _) ->
                         cargs.Add arg 
-                        dc r body             
+                        dc (currying - 1) body             
                     | _ -> 
                         let i = Id.New(mut = false)
                         cargs.Add i
-                        dc r <| Application (expr, [Var i], false, Some 1)
-            //DeCurry r
-        let body = dc currying expr
-        let res = Lambda(List.ofSeq cargs, body)
-        printfn "result %s" (Debug.PrintExpression res)
-        res
+                        dc (currying - 1) <| Application (expr, [Var i], false, Some 1)
+                //DeCurry r
+            let body = dc currying expr
+            let res = Lambda(List.ofSeq cargs, body)
+            printfn "result %s" (Debug.PrintExpression res)
+            res
+        | M.TupledFuncArg tupling -> 
+            match expr with
+            | Optimizations.TupledLambda (args, body, _) ->
+                Lambda(List.ofSeq args, body)
+            | _ ->
+                let args = List.init tupling (fun _ -> Id.New(mut = false))
+                Lambda(args, Application(expr, [NewArray(args |> List.map Var)], false, Some 1))
 
     override this.TransformCurriedVar(v, currying) =
         let args = ResizeArray()
@@ -583,10 +576,10 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         let trThisObj = thisObj |> Option.map this.TransformExpression
         let trArgs = 
             let ta = args |> List.map this.TransformExpression
-            match opts.CurriedArgs with
+            match opts.FuncArgs with
             | Some ca ->
-                (ca, ta) ||> Seq.map2 (fun currying expr ->
-                    this.DeCurryArg(currying, expr)
+                (ca, ta) ||> Seq.map2 (fun ao expr ->
+                    this.OptimizeArg(ao, expr)
                 )
                 |> List.ofSeq   
             | _ -> ta
@@ -728,11 +721,11 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 this.TransformCall (thisObj, typ, meth, args)
             else
                 match info with
-                | NotCompiled (info, _, curriedArgs) ->
+                | NotCompiled (info, _, funcArgs) ->
                     let opts =
                         {
                             IsPure = false
-                            CurriedArgs = curriedArgs |> Option.map fst
+                            FuncArgs = funcArgs
                         } : M.Optimizations
                     this.CompileCall(info, opts, expr, thisObj, typ, meth, args)
                 | NotGenerated (_, _, info, _) ->
@@ -817,10 +810,10 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             this.AddConstructorDependency(typ.Entity, ctor)
         let trArgs = 
             let ta = args |> List.map this.TransformExpression
-            match opts.CurriedArgs with
+            match opts.FuncArgs with
             | Some ca ->
-                (ca, ta) ||> Seq.map2 (fun currying expr ->
-                    this.DeCurryArg(currying, expr)
+                (ca, ta) ||> Seq.map2 (fun ao expr ->
+                    this.OptimizeArg(ao, expr)
                 )
                 |> List.ofSeq   
             | _ -> ta
@@ -966,11 +959,11 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 this.TransformCtor(typ, ctor, args)
             else 
                 match info with
-                | NotCompiled (info, _, curriedArgs) -> 
+                | NotCompiled (info, _, funcArgs) -> 
                     let opts =
                         {
                             IsPure = false
-                            CurriedArgs = curriedArgs |> Option.map fst
+                            FuncArgs = funcArgs
                         } : M.Optimizations
                     this.CompileCtor(info, opts, expr, typ, ctor, args)
                 | NotGenerated (_, _, info, _) ->

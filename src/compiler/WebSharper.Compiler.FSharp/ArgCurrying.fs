@@ -71,6 +71,11 @@ type CurryingVisitor(curriedArgs: (int list)[], margs: Id list, mems) =
     override this.VisitFunction(args, body) =
         this.VisitStatement body
 
+    override this.VisitLet(var, value, body) =
+        match value with
+        | Hole _ -> this.VisitExpression(body)
+        | _ -> base.VisitLet(var, value, body)
+
     override this.VisitCall(thisOpt, typ, meth, args) =
         thisOpt |> Option.iter this.VisitExpression
         args |> List.iteri (fun i a ->
@@ -166,7 +171,7 @@ type ResolveCurrying(comp: Compilation) =
         | Constructor(typ, ctor) ->
             comp.TryLookupClassInfo(typ) |> Option.map (fun cls -> cls.Constructors.[ctor])
         |> Option.bind (fun (_, opts, _) ->
-            opts.CurriedArgs |> Option.map (fun ca -> ca.[i])
+            opts.FuncArgs |> Option.map (fun ca -> ca.[i])
         )
 
     member this.ResolveMember(mem) =
@@ -174,7 +179,7 @@ type ResolveCurrying(comp: Compilation) =
             match members.TryGetValue mem with
             | true, (nr, args) -> 
                 let nr, args = members.[mem] 
-                let cv = CurryingVisitor(nr.CurriedArgs.Value, args, printMem mem)
+                let cv = CurryingVisitor(nr.FuncArgs.Value, args, printMem mem)
 //                printfn "Resolving use of funcion arguments of %s : %s" (printMem mem) (Debug.PrintExpression nr.Body)
                 cv.VisitExpression(nr.Body)
                 for i, (c, calls) in cv.Results |> Seq.indexed do
@@ -210,7 +215,7 @@ type ResolveCurrying(comp: Compilation) =
         
         for (KeyValue(mem, (nr, args))) in members do
             let cs = rArgs.[mem]
-            nr.CurriedArgs <- Some cs
+            nr.FuncArgs <- Some cs
             let tr = 
                 (cs, args) ||> Seq.map2 (fun c a ->
                     if List.isEmpty c then None else Some (a, c)           
