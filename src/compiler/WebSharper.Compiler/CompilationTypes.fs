@@ -29,7 +29,7 @@ open WebSharper.Core.Metadata
 open WebSharper.Core.DependencyGraph
 
 type CompilingMember =
-    | NotCompiled of CompiledMember * notVirtual: bool
+    | NotCompiled of CompiledMember * notVirtual: bool * curriedArgs : option<list<int>[] * IDictionary<Id, list<int>>>
     | NotGenerated of TypeDefinition * option<obj> * CompiledMember * notVirtual: bool
 
 module NotResolved =
@@ -53,8 +53,9 @@ module NotResolved =
             Generator : option<TypeDefinition * option<obj>>
             Compiled : bool
             Pure : bool
-            CurriedArgs : option<IDictionary<int, list<int>>>
-            Body : Expression
+            mutable CurriedArgs : option<list<int>[]>
+            Args : list<Id>
+            mutable Body : Expression
             Requires : list<TypeDefinition>
         }
 

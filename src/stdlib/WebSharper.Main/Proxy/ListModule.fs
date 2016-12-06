@@ -222,7 +222,7 @@ let Map2 (f: 'T1 -> 'T2 -> 'T3) (x1: list<'T1>) (x2: list<'T2>) =
         badLengths()
     res
 
-[<Inline>]
+[<Name "map3">]
 let Map3 (f: 'T1 -> 'T2 -> 'T3 -> 'T4) (x1: list<'T1>) (x2: list<'T2>) (x3: list<'T3>) =
     let res = [] : list<'T4> 
     let mutable r = res

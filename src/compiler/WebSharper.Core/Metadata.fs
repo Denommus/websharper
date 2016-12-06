@@ -124,7 +124,7 @@ type CompiledField =
 type Optimizations =
     {
         IsPure : bool
-        CurriedArgs : option<IDictionary<int, list<int>>>
+        CurriedArgs : option<list<int>[]>
     }
 
     static member None =

@@ -28,9 +28,9 @@ open WebSharper.Compiler
 
 type VarKind =
     | LocalVar 
+    | CurriedArg
     | ByRefArg
     | ThisArg
-    | FuncArg of list<int>
          
 let rec getOrigDef (td: FSharpEntity) =
     if td.IsFSharpAbbreviation then getOrigDef td.AbbreviatedType.TypeDefinition else td 
@@ -89,8 +89,8 @@ let getFuncArg t =
             get (i :: acc) r 
         else
             match acc with
-            | [] | [1] -> None
-            | _ -> Some (List.rev acc)
+            | [] | [1] -> []
+            | _ -> List.rev acc
     get [] t    
 
 exception ParseError of message: string with
@@ -518,6 +518,12 @@ let rec (|CompGenClosure|_|) (expr: FSharpExpr) =
             Some value
     | _ -> None
 
+let appplyCurried f xs =
+    if List.length xs <= 3 then
+        xs |> List.fold (fun e a -> Application (e, [a], false, Some 1)) f
+    else  
+        JSRuntime.Apply f xs
+
 let rec transformExpression (env: Environment) (expr: FSharpExpr) =
     let inline tr x = transformExpression env x
     let sr = env.SymbolReader
@@ -530,6 +536,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 let v, k = env.LookupVar var
                 match k with
                 | LocalVar -> Var v  
+                | CurriedArg -> Var v
                 | ByRefArg -> GetRef (Var v)
                 | ThisArg -> This
         | P.Lambda _ ->
@@ -556,16 +563,24 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                         let v = namedId arg
                         v, env.WithVar(v, arg)
                     ) 
-                let f = lam vars (body |> transformExpression env) (isUnit body.Type)
-                match vars.Length with
-                | 2 -> JSRuntime.Curried2 f
-                | 3 -> JSRuntime.Curried3 f
-                | n -> JSRuntime.Curried f n
+                let trBody = body |> transformExpression env
+                let isUnit = isUnit body.Type
+                trBody |> List.foldBack (fun v e -> lam [v] e isUnit) vars
+//                let f = lam vars trBody (isUnit body.Type)
+//                match vars.Length with
+//                | 2 -> JSRuntime.Curried2 f
+//                | 3 -> JSRuntime.Curried3 f
+//                | n -> JSRuntime.Curried f n
         | P.Application(func, types, args) ->
             match IgnoreExprSourcePos (tr func) with
             | CallNeedingMoreArgs(thisObj, td, m, ca) ->
                 Call(thisObj, td, m, ca @ (args |> List.map tr))
             | trFunc ->
+                match func with
+                | P.Value(f) when snd (env.LookupVar f) = CurriedArg -> 
+                    let trArgs = args |> List.map (fun a -> tr a |> removeListOfArray a.Type)
+                    CurriedApplication(trFunc, trArgs)
+                | _ ->
                 match args with
                 | [a] when isUnit a.Type ->
                     let trA = tr a |> removeListOfArray a.Type
@@ -574,25 +589,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                     | _ -> Sequential [ trA; Application (trFunc, [], false, Some 0) ]
                 | _ ->
                     let trArgs = args |> List.map (fun a -> tr a |> removeListOfArray a.Type)
-                    CurriedApplication(trFunc, trArgs)
-//                let appl f x = Application (f, [x], false, Some 1)
-//                match args with
-//                | [a] ->
-//                    let trA = tr a |> removeListOfArray a.Type
-//                    if isUnit a.Type then
-//                        match IgnoreExprSourcePos trA with
-//                        | Undefined | Value Null -> Application (trFunc, [], false, Some 0)
-//                        | _ -> Sequential [ trA; Application (trFunc, [], false, Some 0) ]
-//                    else appl trFunc trA
-//                | _ ->
-//                    let trArgs = args |> List.map (fun a -> tr a |> removeListOfArray a.Type)
-//                    match trArgs with
-//                    | [ a; b ] ->
-//                        appl (appl trFunc a) b
-//                    | [ a; b; c ] ->
-//                        appl (appl (appl trFunc a) b) c
-//                    | _ ->
-//                        JSRuntime.Apply trFunc trArgs
+                    appplyCurried trFunc trArgs
         // eliminating unneeded compiler-generated closures
         | CompGenClosure value ->
             tr value
@@ -731,6 +728,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 let v, k = env.LookupVar var
                 match k with
                 | LocalVar -> Void(VarSet(v, tr value)) 
+                | CurriedArg -> failwith "function argument cannot be set"
                 | ByRefArg -> SetRef (Var v) (tr value)
                 | ThisArg -> failwith "'this' parameter cannot be set"
         | P.TupleGet (_, i, tuple) ->
