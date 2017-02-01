@@ -152,8 +152,8 @@ let ExprDefs =
             , "Temporary - Partial application, workaround for FCS issue #414"
         "CurriedApplication", [ Expr, "func"; List Expr, "arguments" ]
             , "Temporary - F# function application"
-        "CurriedVar", [ Id, "funcVar"; Object "list<int>", "currying"]
-            , "Temporary - F# curried function value"
+        "OptimizedFSharpArg", [ Expr, "funcVar"; Object "FuncArgOptimization", "opt"]
+            , "Temporary - optimized curried or tupled F# function argument"
         "Ctor", [ TypeDefinition, "typeDefinition"; Constructor, "ctor"; List Expr, "arguments" ] 
             , ".NET - Constructor call"
         "BaseCtor", [ Expr, "thisObject"; TypeDefinition, "typeDefinition"; Constructor, "ctor"; List Expr, "arguments" ]

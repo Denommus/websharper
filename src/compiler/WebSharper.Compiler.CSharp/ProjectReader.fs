@@ -175,7 +175,7 @@ let private transformClass (rcomp: CSharpCompilation) (sr: R.SymbolReader) (comp
                 Pure = mAnnot.Pure
                 Body = expr
                 Requires = mAnnot.Requires
-                CurriedArgs = None
+                FuncArgs = None
                 Args = []
             }
 

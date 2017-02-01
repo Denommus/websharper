@@ -28,7 +28,7 @@ open WebSharper.Compiler
 
 type VarKind =
     | LocalVar 
-    | CurriedArg
+    | FuncArg
     | ByRefArg
     | ThisArg
          
@@ -89,9 +89,15 @@ let getFuncArg t =
             get (i :: acc) r 
         else
             match acc with
-            | [] | [1] -> M.NotOptimizedFuncArg
-            | [n] -> M.TupledFuncArg n
-            | _ -> M.CurriedFuncArg (List.length acc)
+            | [] | [1] -> NotOptimizedFuncArg
+            | [n] ->
+                if Experimental.OptimizeTupledArguments then
+                    TupledFuncArg n
+                else NotOptimizedFuncArg
+            | _ ->
+                if Experimental.OptimizeCurriedArguments then
+                    CurriedFuncArg (List.length acc)
+                else NotOptimizedFuncArg
     get [] t    
 
 exception ParseError of message: string with
@@ -519,7 +525,7 @@ let rec (|CompGenClosure|_|) (expr: FSharpExpr) =
             Some value
     | _ -> None
 
-let appplyCurried f xs =
+let applyCurried f xs =
     if List.length xs <= 3 then
         xs |> List.fold (fun e a -> Application (e, [a], false, Some 1)) f
     else  
@@ -537,7 +543,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 let v, k = env.LookupVar var
                 match k with
                 | LocalVar -> Var v  
-                | CurriedArg -> Var v
+                | FuncArg -> Var v
                 | ByRefArg -> GetRef (Var v)
                 | ThisArg -> This
         | P.Lambda _ ->
@@ -577,7 +583,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 Call(thisObj, td, m, ca @ (args |> List.map tr))
             | trFunc ->
                 match func with
-                | P.Value(f) when snd (env.LookupVar f) = CurriedArg -> 
+                | P.Value(f) when snd (env.LookupVar f) = FuncArg -> 
                     let trArgs = args |> List.map (fun a -> tr a |> removeListOfArray a.Type)
                     CurriedApplication(trFunc, trArgs)
                 | _ ->
@@ -589,7 +595,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                     | _ -> Sequential [ trA; Application (trFunc, [], false, Some 0) ]
                 | _ ->
                     let trArgs = args |> List.map (fun a -> tr a |> removeListOfArray a.Type)
-                    appplyCurried trFunc trArgs
+                    applyCurried trFunc trArgs
         // eliminating unneeded compiler-generated closures
         | CompGenClosure value ->
             tr value
@@ -728,7 +734,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 let v, k = env.LookupVar var
                 match k with
                 | LocalVar -> Void(VarSet(v, tr value)) 
-                | CurriedArg -> failwith "function argument cannot be set"
+                | FuncArg -> failwith "function argument cannot be set"
                 | ByRefArg -> SetRef (Var v) (tr value)
                 | ThisArg -> failwith "'this' parameter cannot be set"
         | P.TupleGet (_, i, tuple) ->

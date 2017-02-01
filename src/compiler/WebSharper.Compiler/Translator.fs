@@ -517,54 +517,95 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
 
     member this.OptimizeArg (opt, expr) =
         match opt with
-        | M.NotOptimizedFuncArg -> expr
-        | M.CurriedFuncArg currying ->
-            let cargs = ResizeArray()
-            printfn "decurrying %A: %s" currying (Debug.PrintExpression expr)
-            let rec dc currying expr =
-                if currying = 0 then expr else
+        | NotOptimizedFuncArg -> expr
+        | CurriedFuncArg currying ->
+            printfn "decurrying (%O) %A: %s" this.CurrentSourcePos.Value currying (Debug.PrintExpression expr)
+            let rec dc currying cargs expr =
+                if currying = 0 then List.rev cargs, expr else
                     match expr with
                     | Optimizations.Lambda ([arg], body, _) ->
-                        cargs.Add arg 
-                        dc (currying - 1) body             
+                        dc (currying - 1) (arg :: cargs) body             
                     | _ -> 
                         let i = Id.New(mut = false)
-                        cargs.Add i
-                        dc (currying - 1) <| Application (expr, [Var i], false, Some 1)
+                        dc (currying - 1) (i :: cargs) <| Application (expr, [Var i], false, Some 1)
                 //DeCurry r
-            let body = dc currying expr
-            let res = Lambda(List.ofSeq cargs, body)
+            let res =
+                match IgnoreExprSourcePos expr with 
+                | OptimizedFSharpArg(f, CurriedFuncArg arity) when arity = currying ->
+//                    if arity = currying then
+                        f
+//                    else
+//                        let body = this.TransformOptimizedFSharpArg(f, CurriedFuncArg arity) |> dc currying
+//                        Lambda(List.ofSeq cargs, body)
+                | _ ->
+                    let cargs, body = dc currying [] expr
+                    Lambda(List.ofSeq cargs, body)
             printfn "result %s" (Debug.PrintExpression res)
             res
-        | M.TupledFuncArg tupling -> 
-            match expr with
-            | Optimizations.TupledLambda (args, body, _) ->
-                Lambda(List.ofSeq args, body)
-            | _ ->
-                let args = List.init tupling (fun _ -> Id.New(mut = false))
-                Lambda(args, Application(expr, [NewArray(args |> List.map Var)], false, Some 1))
-
-    override this.TransformCurriedVar(v, currying) =
-        let args = ResizeArray()
-        let rec c currying =
-            match currying with
-            | h :: t ->
-                match h with
-                | 0 ->
-                    Lambda ([], c t)
-                | 1 ->
-                    let v = Id.New(mut = false)
-                    args.Add (Var v)
-                    Lambda ([v], c t)
+        | TupledFuncArg tupling -> 
+            printfn "detupling (%O) %A: %s" this.CurrentSourcePos.Value tupling (Debug.PrintExpression expr)
+            let res =
+                match expr with
+                | Optimizations.TupledLambda (args, body, _) ->
+                    Lambda(List.ofSeq args, body)
                 | _ ->
-                    let v = Id.New(mut = false)
-                    for i = 0 to h - 1 do
-                        args.Add ((Var v).[Value (Int i)])
-                    Lambda ([v], c t)
-            | [] -> Application (Var v, List.ofSeq args, false, Some args.Count)
-        let res = c currying
-        printfn "curried %A: %s" currying (Debug.PrintExpression res)
-        res 
+                    match IgnoreExprSourcePos expr with
+                    | OptimizedFSharpArg(f, TupledFuncArg arity) when arity = tupling -> 
+                        f
+                    | _ ->
+                        let args = List.init tupling (fun _ -> Id.New(mut = false))
+                        Lambda(args, Application(expr, [NewArray(args |> List.map Var)], false, Some 1))
+            printfn "result %s" (Debug.PrintExpression res)
+            res
+
+    override this.TransformOptimizedFSharpArg(f, opt) =
+        match opt with
+        | CurriedFuncArg arity ->
+            let rec c args a =
+                if a = 0 then
+                    Application (f, List.rev args, false, Some arity)
+                else
+                    let x = Id.New(mut = false)
+                    Lambda ([x], c (Var x :: args) (a - 1))
+            c [] arity
+//            match arity with
+//            | 2 -> JSRuntime.Curried2 f
+//            | 3 -> JSRuntime.Curried3 f
+//            | n -> JSRuntime.Curried f n
+        | TupledFuncArg arity ->
+            let x = Id.New(mut = false)
+            let args =
+                List.init arity (fun i -> (Var x).[Value (Int i)])
+            Lambda ([x], Application (f, args, false, Some arity))
+        | _ ->
+            this.TransformExpression(f)
+
+    member this.TransformArgument(expr) =
+        match IgnoreExprSourcePos expr with
+        | OptimizedFSharpArg(_, (CurriedFuncArg _ | TupledFuncArg _)) -> expr
+        | _ -> this.TransformExpression expr
+
+//    override this.TransformCurriedFuncVar(v, currying) =
+//        let args = ResizeArray()
+//        let rec c currying =
+//            match currying with
+//            | h :: t ->
+//                match h with
+//                | 0 ->
+//                    Lambda ([], c t)
+//                | 1 ->
+//                    let v = Id.New(mut = false)
+//                    args.Add (Var v)
+//                    Lambda ([v], c t)
+//                | _ ->
+//                    let v = Id.New(mut = false)
+//                    for i = 0 to h - 1 do
+//                        args.Add ((Var v).[Value (Int i)])
+//                    Lambda ([v], c t)
+//            | [] -> Application (Var v, List.ofSeq args, false, Some args.Count)
+//        let res = c currying
+//        printfn "curried %A: %s" currying (Debug.PrintExpression res)
+//        res 
 
     member this.CompileCall (info, opts: M.Optimizations, expr, thisObj, typ, meth, args, ?baseCall) =
         match thisObj with
@@ -574,16 +615,16 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         if comp.HasGraph then
             this.AddMethodDependency(typ.Entity, meth.Entity)
         let trThisObj = thisObj |> Option.map this.TransformExpression
-        let trArgs = 
-            let ta = args |> List.map this.TransformExpression
+        let trArgs() = 
+            let ta = args
             match opts.FuncArgs with
             | Some ca ->
                 (ca, ta) ||> Seq.map2 (fun ao expr ->
-                    this.OptimizeArg(ao, expr)
+                    this.OptimizeArg(ao, expr) |> this.TransformArgument
                 )
                 |> List.ofSeq   
-            | _ -> ta
-                
+            | _ -> ta |> List.map this.TransformArgument
+                        
         match info with
         | M.Instance name ->
             match baseCall with
@@ -591,22 +632,26 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 let ba = comp.TryLookupClassInfo(typ.Entity).Value.Address.Value
                 Application(
                     GlobalAccess ba |> getItem "prototype" |> getItem name |> getItem "call",
-                    This :: (trArgs), opts.IsPure, None)
+                    This :: (trArgs()), opts.IsPure, None)
             | _ ->
                 Application(
                     this.TransformExpression thisObj.Value |> getItem name,
-                    trArgs, opts.IsPure, None) 
+                    trArgs(), opts.IsPure, None) 
         | M.Static address ->
-            Application(GlobalAccess address, trArgs, opts.IsPure, Some meth.Entity.Value.Parameters.Length)
+            Application(GlobalAccess address, trArgs(), opts.IsPure, Some meth.Entity.Value.Parameters.Length)
         | M.Inline ->
-            Substitution(trArgs, ?thisObj = trThisObj).TransformExpression(expr)
+            let res = Substitution(trArgs(), ?thisObj = trThisObj).TransformExpression(expr)
+            if opts.FuncArgs.IsSome then
+                printfn "func arg inline: %s" (Debug.PrintExpression expr)
+                printfn "func arg inline result: %s" (Debug.PrintExpression res)
+            res
         | M.NotCompiledInline ->
             let ge =
                 if not (List.isEmpty typ.Generics && List.isEmpty meth.Generics) then
                     try GenericInlineResolver(typ.Generics @ meth.Generics).TransformExpression expr
                     with e -> this.Error (sprintf "Failed to resolve generics: %s" e.Message)
                 else expr
-            Substitution(trArgs, ?thisObj = trThisObj).TransformExpression(ge)
+            Substitution(trArgs(), ?thisObj = trThisObj).TransformExpression(ge)
             |> this.TransformExpression
         | M.Macro (macro, parameter, fallback) ->
             let macroResult = 
@@ -614,13 +659,13 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 | Some m ->
                     try 
                         m.TranslateCall {
-                             This = thisObj
-                             DefiningType = typ
-                             Method = meth
-                             Arguments = args
-                             Parameter = parameter |> Option.map M.ParameterObject.ToObj
-                             IsInline = currentIsInline
-                             Compilation = comp
+                                This = thisObj
+                                DefiningType = typ
+                                Method = meth
+                                Arguments = args
+                                Parameter = parameter |> Option.map M.ParameterObject.ToObj
+                                IsInline = currentIsInline
+                                Compilation = comp
                         }
                     with e -> MacroError e.Message 
                 | _ -> 
@@ -651,7 +696,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                     if currentIsInline then
                         hasDelayedTransform <- true
                         let typ = Generic (comp.FindProxied typ.Entity) typ.Generics
-                        Call(trThisObj, typ, meth, trArgs)
+                        Call(trThisObj, typ, meth, args |> List.map this.TransformExpression)
                     else 
                         this.Error(sprintf "Macro '%s' requires a resolved type argument." macro.Value.FullName)
             getExpr macroResult
@@ -679,7 +724,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                     | TupleType ts -> ts |> List.iter addTypeDeps
                     | _ -> ()
                 addTypeDeps meth.Entity.Value.ReturnType
-            Application (remotingProvider |> getItem name, [ Value (String (handle.Pack())); NewArray trArgs ], opts.IsPure, Some 2)
+            Application (remotingProvider |> getItem name, [ Value (String (handle.Pack())); NewArray (trArgs()) ], opts.IsPure, Some 2)
         | M.Constructor _ -> failwith "Not a valid method info: Constructor"
 
     override this.TransformCall (thisObj, typ, meth, args) =
@@ -808,29 +853,28 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
     member this.CompileCtor(info, opts: M.Optimizations, expr, typ, ctor, args) =
         if comp.HasGraph then
             this.AddConstructorDependency(typ.Entity, ctor)
-        let trArgs = 
-            let ta = args |> List.map this.TransformExpression
+        let trArgs() = 
             match opts.FuncArgs with
             | Some ca ->
-                (ca, ta) ||> Seq.map2 (fun ao expr ->
-                    this.OptimizeArg(ao, expr)
+                (ca, args) ||> Seq.map2 (fun ao expr ->
+                    this.OptimizeArg(ao, expr) |> this.TransformArgument
                 )
                 |> List.ofSeq   
-            | _ -> ta
+            | _ -> args |> List.map this.TransformArgument
         match info with
         | M.Constructor address ->
-            New(GlobalAccess address, trArgs)
+            New(GlobalAccess address, trArgs())
         | M.Static address ->
-            Application(GlobalAccess address, trArgs, opts.IsPure, Some ctor.Value.CtorParameters.Length)
+            Application(GlobalAccess address, trArgs(), opts.IsPure, Some ctor.Value.CtorParameters.Length)
         | M.Inline -> 
-            Substitution(trArgs).TransformExpression(expr)
+            Substitution(trArgs()).TransformExpression(expr)
         | M.NotCompiledInline -> 
             let ge =
                 if not (List.isEmpty typ.Generics) then
                     try GenericInlineResolver(typ.Generics).TransformExpression expr
                     with e -> this.Error(sprintf "Failed to resolve generics: %s" e.Message)
                 else expr
-            Substitution(trArgs).TransformExpression(ge)
+            Substitution(trArgs()).TransformExpression(ge)
             |> this.TransformExpression
         | M.Macro (macro, parameter, fallback) ->
             let macroResult = 
@@ -867,7 +911,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                     if currentIsInline then
                         hasDelayedTransform <- true
                         let typ = Generic (comp.FindProxied typ.Entity) typ.Generics
-                        Ctor(typ, ctor, trArgs)
+                        Ctor(typ, ctor, trArgs())
                     else 
                         this.Error(sprintf "Macro '%s' requires a resolved type argument." macro.Value.FullName)
             getExpr macroResult

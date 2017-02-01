@@ -58,7 +58,7 @@ let sliceFromArguments slice =
         Arguments :: [ for a in slice -> !~ (Int a) ], true, None)
 
 let (|Lambda|_|) e = 
-    match e with
+    match IgnoreExprSourcePos e with
     | Function(args, Return body) -> Some (args, body, true)
     | Function(args, ExprStatement body) -> Some (args, body, false)
     | _ -> None

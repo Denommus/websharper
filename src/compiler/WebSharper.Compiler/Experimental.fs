@@ -21,4 +21,6 @@
 module WebSharper.Compiler.Experimental
     let mutable OptimizeFSharpFuncOperators = false
     let mutable MoveNonCapturingFunctionsToTop = false
+    let mutable OptimizeCurriedArguments = true
+    let mutable OptimizeTupledArguments = true
 

@@ -115,7 +115,7 @@ let private transformInitAction (sc: Lazy<_ * StartupCode>) (comp: Compilation) 
         let env = CodeReader.Environment.New ([], [], comp, sr)  
         statements.Add (CodeReader.transformExpression env a |> ExprStatement)
 
-let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (ac: ArgCurrying.ResolveCurrying) (sr: CodeReader.SymbolReader) parentAnnot (cls: FSharpEntity) members =
+let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (ac: ArgCurrying.ResolveFuncArgs) (sr: CodeReader.SymbolReader) parentAnnot (cls: FSharpEntity) members =
     let thisDef = sr.ReadTypeDefinition cls
     
     let annot = 
@@ -162,7 +162,7 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                 Pure = mAnnot.Pure
                 Body = expr
                 Requires = mAnnot.Requires
-                CurriedArgs = curriedArgs |> Option.map (fun (_, ca, _) -> ca)
+                FuncArgs = curriedArgs |> Option.map (fun (_, ca, _) -> ca)
                 Args = 
                     match curriedArgs with 
                     | None -> [] 
@@ -378,8 +378,8 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                                             if noCurriedOpt then CodeReader.LocalVar
                                             else
                                                 match CodeReader.getFuncArg p.FullType with
-                                                | [] -> CodeReader.LocalVar
-                                                | _ -> CodeReader.CurriedArg
+                                                | NotOptimizedFuncArg -> CodeReader.LocalVar
+                                                | _ -> CodeReader.FuncArg
                                     )
                             ]
                         // search for curried function arguments and register them
@@ -397,13 +397,13 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                                 a |> List.map (fun p -> 
                                     CodeReader.getFuncArg p.FullType
                                 )
-                            if List.forall List.isEmpty ca then None 
+                            if ca |> List.forall ((=) NotOptimizedFuncArg) then None 
                             else 
                                 let args =
                                     argsAndVars |> List.map (snd >> fst)
                                     |> if Option.isSome t then List.skip 1 else id    
                                 
-                                Some (mem, Array.ofList ca, args)
+                                Some (mem, ca, args)
                         
                         let tparams = meth.GenericParameters |> Seq.map (fun p -> p.Name) |> List.ofSeq 
                         let env = CodeReader.Environment.New (argsAndVars, tparams, comp, sr)  
@@ -915,7 +915,7 @@ let transformAssembly (comp : Compilation) assemblyName (checkResults: FSharpChe
     comp.LookupTypeAttributes <- lookupTypeAttributes
     comp.LookupFieldAttributes <- lookupFieldAttributes 
 
-    let argCurrying = ArgCurrying.ResolveCurrying(comp)
+    let argCurrying = ArgCurrying.ResolveFuncArgs(comp)
 
     for file in checkResults.AssemblyContents.ImplementationFiles do
         let fileName =

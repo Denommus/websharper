@@ -33,105 +33,159 @@ type Member =
     | Method of TypeDefinition * Method
     | Constructor of TypeDefinition * Constructor
 
-let minLists a b =
-    let rec m acc a b =
-        match a, b with
-        | ah :: ar, bh :: br ->
-            let h = if ah <> bh then 1 else ah
-            m (h :: acc) ar br
-        | _ -> List.rev acc
-    m [] a b
-
-type CurryingVisitor(curriedArgs: (int list)[], margs: Id list, mems) =
+type FuncArgVisitor(opts: FuncArgOptimization list, margs: Id list, mems) =
     inherit Visitor()
 
     let cargs =
-        (curriedArgs, Array.ofList margs) ||> Seq.map2 (fun c a ->
-            if List.isEmpty c then None else Some a
+        (opts, margs) ||> Seq.map2 (fun c a ->
+            match c with
+            | CurriedFuncArg _ 
+            | TupledFuncArg _ -> Some a
+            | _ -> None
         ) |> Seq.choose id |> HashSet
-    let margs = margs |> Seq.mapi (fun i a -> a, i) |> dict
+    let iargs = margs |> Seq.mapi (fun i a -> a, i) |> dict
 
-    let appl = curriedArgs |> Array.copy
-    let calls = Array.init curriedArgs.Length ResizeArray
+    let appl =
+        opts |> Seq.map (fun c ->
+            match c with
+            | CurriedFuncArg a -> a
+            | TupledFuncArg _ -> 1
+            | _ -> 0
+        ) |> Array.ofSeq
+    let calls = Array.init iargs.Count ResizeArray
 
     let setAppl i value =
-        let i = margs.[i]
+        let i = iargs.[i]
         let a = appl.[i]
-        if a.Length > value then
-            appl.[i] <- a |> List.take value
+        if a > value then
+            appl.[i] <- value
 
+    let (|ArgIndex|_|) e =
+        match e with
+        | Var v ->
+            if cargs.Contains v then Some iargs.[v] else None
+        | Hole i ->
+            if cargs.Contains margs.[i] then Some i else None
+        | _ -> None
+                
     member this.Results =
-        Array.zip appl calls    
+        let res =
+            (appl, opts) ||> Seq.map2(fun i c -> 
+                match c with     
+                | CurriedFuncArg _ -> 
+                    if i > 1 then CurriedFuncArg i else NotOptimizedFuncArg
+                | TupledFuncArg _ ->
+                    if i > 0 then c else NotOptimizedFuncArg
+                | _ -> c
+            ) |> Array.ofSeq
+        Array.zip res calls    
 
     override this.VisitId i =
         if cargs.Contains i then
 //            printfn "Non-application use of curried arg %s of %s" i.Name.Value mems 
             setAppl i 0
 
+    override this.VisitHole i =
+        this.VisitId(margs.[i])
+
     override this.VisitFunction(args, body) =
         this.VisitStatement body
 
     override this.VisitLet(var, value, body) =
         match value with
-        | Hole _ -> this.VisitExpression(body)
+        | Hole _ when iargs.ContainsKey var -> this.VisitExpression(body)
         | _ -> base.VisitLet(var, value, body)
 
     override this.VisitCall(thisOpt, typ, meth, args) =
         thisOpt |> Option.iter this.VisitExpression
         args |> List.iteri (fun i a ->
             match IgnoreExprSourcePos a with
-            | Var v ->
-                if cargs.Contains v then
-                    calls.[margs.[v]].Add(Method (typ.Entity, meth.Entity), i)
+            | ArgIndex j ->
+                calls.[j].Add(Method (typ.Entity, meth.Entity), i)
             | a -> this.VisitExpression a     
         )
 
     override this.VisitCtor(typ, ctor, args) =
         args |> List.iteri (fun i a ->
             match IgnoreExprSourcePos a with
-            | Var v ->
-                if cargs.Contains v then
-                    calls.[margs.[v]].Add(Constructor (typ.Entity, ctor), i)
+            | ArgIndex j ->
+                calls.[j].Add(Constructor (typ.Entity, ctor), i)
             | a -> this.VisitExpression a     
         )
 
     override this.VisitCurriedApplication(f, args) =
         match IgnoreExprSourcePos f with
-        | Var i ->
-            if cargs.Contains i then
-                setAppl i (List.length args)
+        | ArgIndex i ->
+            setAppl margs.[i] (List.length args)
         | f -> this.VisitExpression f
         args |> List.iter this.VisitExpression            
 
-type CurryingTransformer(cargs: IDictionary<Id,int list>) =
+    override this.VisitApplication(f, args, _, _) =
+        match IgnoreExprSourcePos f with
+        | ArgIndex i ->
+            setAppl margs.[i] 1
+        | f -> this.VisitExpression f
+        args |> List.iter this.VisitExpression            
+
+type FuncArgTransformer(al: list<Id * FuncArgOptimization>) =
     inherit Transformer()
 
+    let cargs = dict al
+         
     override this.TransformVar(v) =
         match cargs.TryGetValue v with
-        | true, c ->
-            CurriedVar(v, c)
+        | true, (CurriedFuncArg _ | TupledFuncArg _ as opt) ->
+            OptimizedFSharpArg(Var v, opt)
         | _ -> Var v
     
+    override this.TransformHole(i) =
+        match al.[i] with
+        | _, (CurriedFuncArg _ | TupledFuncArg _ as opt) ->
+            OptimizedFSharpArg(Hole i, opt)
+        | _ -> Hole i
+
     override this.TransformCurriedApplication(func, args: Expression list) =
+        let normal() =
+            CodeReader.applyCurried (this.TransformExpression func)
+                (List.map this.TransformExpression args)
         match func with
-        | I.Var f when cargs.ContainsKey f ->
-            let ucArgs = ResizeArray()
-            let ca = cargs.[f]
-            for (i, t) in ca |> List.indexed do
-                if t = 1 then
-                    ucArgs.Add(args.[i])           
-                else       
-                    for j = 0 to t - 1 do
-                        ucArgs.Add(args.[i].[Value (Int j)])
-            let inner = Application(func, List.ofSeq ucArgs, false, Some ucArgs.Count)
-            CodeReader.appplyCurried inner args.[ca.Length .. args.Length - 1]
-        | _ ->
-            CodeReader.appplyCurried func args
+        | I.Var f ->
+            match cargs.TryGetValue f with
+            | true, CurriedFuncArg a ->
+                printfn "transforming curried application, length: %d args %d" a args.Length
+                let ucArgs, restArgs = args |> List.map this.TransformExpression |> List.splitAt a
+                let inner = Application(Var f, ucArgs, false, Some a)
+                let res = CodeReader.applyCurried inner restArgs
+                printfn "result: %s" (Debug.PrintExpression res)
+                res
+            | true, TupledFuncArg a ->
+                match args with
+                | t :: rArgs ->
+                    CodeReader.applyCurried (this.TransformApplication(func, [t], false, Some 1))
+                        (List.map this.TransformExpression rArgs)
+                | _ -> failwith "tupled func must have arguments"
+            | _ -> normal()
+        | _ -> normal()
+
+    override this.TransformApplication(func, args, p, l) =
+        let normal() =
+            Application(this.TransformExpression func, List.map this.TransformExpression args, p, l)
+        match func with
+        | I.Var f ->
+            match cargs.TryGetValue f with
+            | true, TupledFuncArg a ->
+                match args with
+                | [ I.NewArray es ] ->
+                    Application(Var f, List.map this.TransformExpression es, p, Some (List.length es))
+                | _ ->
+                    failwith "tupled function applied with multiple arguments"    
+            | _ -> normal()    
+        | _ -> normal()
     
-type ResolveCurrying(comp: Compilation) =
+type ResolveFuncArgs(comp: Compilation) =
     let members = Dictionary<Member, NotResolvedMethod * Id list>()
     let resolved = HashSet<Member>()
-    let rArgs = Dictionary<Member * int, int list>()
+    let rArgs = Dictionary<Member * int, FuncArgOptimization>()
     let callsTo = Dictionary<Member * int, list<Member * int>>()
 
     let printMem mem = 
@@ -142,7 +196,7 @@ type ResolveCurrying(comp: Compilation) =
     let getRArgs mi =
         match rArgs.TryGetValue(mi) with
         | true, v -> v
-        | _ -> []
+        | _ -> NotOptimizedFuncArg
          
     let rec setRArgs mi value =
         let mem, i = mi
@@ -179,22 +233,33 @@ type ResolveCurrying(comp: Compilation) =
             match members.TryGetValue mem with
             | true, (nr, args) -> 
                 let nr, args = members.[mem] 
-                let cv = CurryingVisitor(nr.FuncArgs.Value, args, printMem mem)
+                let cv = FuncArgVisitor(nr.FuncArgs.Value, args, printMem mem)
 //                printfn "Resolving use of funcion arguments of %s : %s" (printMem mem) (Debug.PrintExpression nr.Body)
                 cv.VisitExpression(nr.Body)
                 for i, (c, calls) in cv.Results |> Seq.indexed do
-                    if not (List.isEmpty c) then
+                    match c with
+                    | CurriedFuncArg _ -> 
                         calls |> Seq.fold (fun v call -> 
                             match this.GetCompiled(call) with
                             | Some n -> 
                                 Dict.addToMulti callsTo call (mem, i)
-                                minLists n v
+                                min n v
                             | _ -> 
                                 this.ResolveMember(fst call)
-                                minLists (getRArgs call) v
+                                min (getRArgs call) v
                         ) c |> setRArgs (mem, i)
-                    else
-                        setRArgs (mem, i) [] 
+                    | TupledFuncArg _ -> 
+                        calls |> Seq.fold (fun v call -> 
+                            match this.GetCompiled(call) with
+                            | Some n -> 
+                                Dict.addToMulti callsTo call (mem, i)
+                                min n v
+                            | _ -> 
+                                this.ResolveMember(fst call)
+                                min (getRArgs call) v
+                        ) c |> setRArgs (mem, i)
+                    | _ ->
+                        setRArgs (mem, i) c
             | _ -> ()
 
     member this.ResolveAll() =
@@ -209,7 +274,7 @@ type ResolveCurrying(comp: Compilation) =
                 let cs = Array.zeroCreate (List.length (snd members.[mem]))
                 for _, (i, c) in curr do
                     cs.[i] <- c
-                mem, cs
+                mem, List.ofArray cs
             )
             |> dict
         
@@ -217,7 +282,5 @@ type ResolveCurrying(comp: Compilation) =
             let cs = rArgs.[mem]
             nr.FuncArgs <- Some cs
             let tr = 
-                (cs, args) ||> Seq.map2 (fun c a ->
-                    if List.isEmpty c then None else Some (a, c)           
-                ) |> Seq.choose id |> dict |> CurryingTransformer
+                (args, cs) ||> List.zip |> FuncArgTransformer
             nr.Body <- tr.TransformExpression(nr.Body)

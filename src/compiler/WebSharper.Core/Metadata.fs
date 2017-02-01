@@ -121,11 +121,6 @@ type CompiledField =
     | StaticField of Address
     | IndexedField of int
 
-type FuncArgOptimization =
-    | NotOptimizedFuncArg
-    | CurriedFuncArg of int    
-    | TupledFuncArg of int    
-
 type Optimizations =
     {
         IsPure : bool
