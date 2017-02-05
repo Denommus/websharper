@@ -24,4 +24,6 @@ module WebSharper.Compiler.Breaker
 
 open WebSharper.Core.AST
 
+val removeLets : Expression -> Expression
+
 val BreakStatement : Statement -> Statement

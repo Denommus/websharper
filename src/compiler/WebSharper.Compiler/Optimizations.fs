@@ -58,7 +58,7 @@ let sliceFromArguments slice =
         Arguments :: [ for a in slice -> !~ (Int a) ], true, None)
 
 let (|Lambda|_|) e = 
-    match IgnoreExprSourcePos e with
+    match e with
     | Function(args, Return body) -> Some (args, body, true)
     | Function(args, ExprStatement body) -> Some (args, body, false)
     | _ -> None
@@ -168,6 +168,9 @@ let cleanRuntime expr =
                 Application(f, args, isPure, Some l)
         | "CreateFuncWithArgs", [ TupledLambda (vars, body, isReturn) as f ] ->
             func vars body isReturn |> WithSourcePosOfExpr f
+        | "CreateFuncWithArgs", _ ->
+            printfn "Non-optimized CreateFuncWithArgs: %A" (xs |> List.map Debug.PrintExpression)
+            expr
         | "CreateFuncWithOnlyThis", [ Lambda ([obj], body, isReturn) as f ] ->
             thisFunc obj [] body isReturn |> WithSourcePosOfExpr f
         | "CreateFuncWithThis", [ Lambda ([obj], Lambda (args, body, isReturn), true) as f ] ->

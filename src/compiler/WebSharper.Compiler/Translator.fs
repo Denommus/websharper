@@ -76,7 +76,19 @@ type RuntimeCleaner() =
 
 let private runtimeCleaner = RuntimeCleaner()
 
-let breakExpr e = breaker.TransformExpression(runtimeCleaner.TransformExpression(e))
+type RemoveLets() =
+    inherit Transformer()
+    
+    override this.TransformExpression (a) =
+        base.TransformExpression(removeLets a)
+                                
+let removeLetsTr = RemoveLets()
+
+let breakExpr e = 
+    e 
+    |> removeLetsTr.TransformExpression
+    |> runtimeCleaner.TransformExpression
+    |> breaker.TransformExpression
 
 let defaultRemotingProvider =
     TypeDefinition {
