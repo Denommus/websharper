@@ -135,6 +135,9 @@ let numericTypes =
         "System.Double" 
     ]
 
+let isPrivate (f: ISymbol) =
+    f.DeclaredAccessibility = Accessibility.Private
+
 type SymbolReader(comp : WebSharper.Compiler.Compilation) as self =
 
     let attrReader =
@@ -488,8 +491,8 @@ type RoslynTransformer(env: Environment) =
             match env.RangeVars.[v] with
             | v, None -> Var v
             | v, Some i -> ItemGet(Var v, Value (Int i))
-        | :? IFieldSymbol as f -> FieldGet((getTarget()), sr.ReadNamedType f.ContainingType, f.Name) 
-        | :? IEventSymbol as e -> FieldGet((getTarget()), sr.ReadNamedType e.ContainingType, e.Name)
+        | :? IFieldSymbol as f -> FieldGet((getTarget()), sr.ReadNamedType f.ContainingType, f.Name, isPrivate f) 
+        | :? IEventSymbol as e -> FieldGet((getTarget()), sr.ReadNamedType e.ContainingType, e.Name, isPrivate e)
         | :? IPropertySymbol as p ->
             call p.GetMethod (getTarget()) [] // TODO: indexed properties?
         | :? IMethodSymbol as m -> 
@@ -653,13 +656,13 @@ type RoslynTransformer(env: Environment) =
                     let ov = Id.New ()
                     let iv = Id.New ()
                     Let (ov, o, Let(iv, i, MakeRef (ItemGet(Var ov, Var iv)) (fun value -> ItemSet(Var ov, Var iv, value))))
-                | FieldGet(o, t, f) ->
+                | FieldGet(o, t, f, p) ->
                     match o with
                     | Some o ->
                         let ov = Id.New ()
-                        Let (ov, o, MakeRef (FieldGet(Some (Var ov), t, f)) (fun value -> FieldSet(Some (Var ov), t, f, value)))     
+                        Let (ov, o, MakeRef (FieldGet(Some (Var ov), t, f, p)) (fun value -> FieldSet(Some (Var ov), t, f, p, value)))     
                     | _ ->
-                        MakeRef e (fun value -> FieldSet(None, t, f, value))  
+                        MakeRef e (fun value -> FieldSet(None, t, f, p, value))  
                 | Application(ItemGet (r, Value (String "get")), [], _, _) ->
                     r
                 | Call (thisOpt, typ, getter, args) ->
@@ -866,7 +869,7 @@ type RoslynTransformer(env: Environment) =
         | AssignmentExpressionKind.SimpleAssignmentExpression ->
             match IgnoreExprSourcePos left with
             | Var id -> VarSet(id, right)
-            | FieldGet (obj, ty, f) -> FieldSet (obj, ty, f, right)
+            | FieldGet (obj, ty, f, p) -> FieldSet (obj, ty, f, p, right)
             | ItemGet(obj, i) -> ItemSet (obj, i, right)
             | Application(ItemGet (r, Value (String "get")), [], _, _) ->
                 withResultValue right <| SetRef r
@@ -915,20 +918,20 @@ type RoslynTransformer(env: Environment) =
             | _ ->
             match IgnoreExprSourcePos left with
             | Var id -> VarSet(id, Call(None, opTyp, operator, [left; right]))
-            | FieldGet (obj, ty, f) -> 
+            | FieldGet (obj, ty, f, p) -> 
                 if leftSymbol :? IEventSymbol then
                     Call(obj, opTyp, operator, [right])
                 else
                 match obj with
                 | None ->
-                    FieldSet (None, ty, f, Call(None, opTyp, operator, [left; right]))
+                    FieldSet (None, ty, f, p, Call(None, opTyp, operator, [left; right]))
                 | Some obj ->
                     let m = Id.New ()
-                    let leftWithM = FieldGet (Some (Var m), ty, f)
-                    Let (m, obj, FieldSet (Some (Var m), ty, f, Call(None, opTyp, operator, [leftWithM; right]))) 
+                    let leftWithM = FieldGet (Some (Var m), ty, f, p)
+                    Let (m, obj, FieldSet (Some (Var m), ty, f, p, Call(None, opTyp, operator, [leftWithM; right]))) 
             | ItemGet(obj, i) ->
                 let m = Id.New ()
-                let j = Id.New ()
+                let j = Id.New ()                                   
                 let leftWithM = ItemGet (Var m, Var j)
                 Let (m, obj, Let (j, i, ItemSet(Var m, Var j, Call(None, opTyp, operator, [leftWithM; right]))))
             | Application(ItemGet (r, Value (String "get")), [], _, _) ->
@@ -1261,14 +1264,14 @@ type RoslynTransformer(env: Environment) =
             let iv = Id.New ()
             withResultValue false (ItemGet(Var ov, Var iv)) <| fun rv -> 
                 ItemSet(Var ov, Var iv, rv)
-        | FieldGet(o, t, f) ->
+        | FieldGet(o, t, f, p) ->
             match o with
             | Some o ->
                 let ov = Id.New ()
-                withResultValue false (FieldGet(Some (Var ov), t, f)) <| fun rv ->
-                    Let (ov, o, FieldSet(Some (Var ov), t, f, rv))
+                withResultValue false (FieldGet(Some (Var ov), t, f, p)) <| fun rv ->
+                    Let (ov, o, FieldSet(Some (Var ov), t, f, p, rv))
             | _ ->
-                withResultValue false operand <| fun rv -> FieldSet(None, t, f, rv)
+                withResultValue false operand <| fun rv -> FieldSet(None, t, f, p, rv)
         | Application(ItemGet (r, Value (String "get")), [], _, _) ->
             withResultValue true operand <| SetRef r
         | Call (thisOpt, typ, getter, args) ->
@@ -1590,12 +1593,12 @@ type RoslynTransformer(env: Environment) =
                 let expression = getExpression()
                 let typ = sr.ReadNamedType symbol.ContainingType
                 let f = symbol.Name
-                FieldGet(expression, typ, f)
+                FieldGet(expression, typ, f, isPrivate symbol)
         | :? IEventSymbol as symbol ->
             let expression = getExpression()
             let typ = sr.ReadNamedType symbol.ContainingType
             let f = symbol.Name
-            FieldGet(expression, typ, f)
+            FieldGet(expression, typ, f, isPrivate symbol)
         | null ->
             let expression =
                 match expr with

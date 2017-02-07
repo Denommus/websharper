@@ -575,7 +575,7 @@ let TryHead<'T> (list: list<'T>) =
         None
 
 [<Name "tryItem">]
-let rec TryItem<'T> n (list: list<'T>) =
+let TryItem<'T> n (list: list<'T>) =
     SeqTryItem n list 
 
 [<Name "tryLast">]

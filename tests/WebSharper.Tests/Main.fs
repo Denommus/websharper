@@ -35,6 +35,7 @@ let RunTests() =
         Char.Tests
         DateTime.Tests
         DateTime.NativeTests
+        Delegate.Tests
         Double.Tests
         Enum.Tests
         Event.Tests
@@ -51,6 +52,7 @@ let RunTests() =
         ObjExpr.Tests
         Operators.Tests
         Option.Tests
+        Optimizations.Tests
         Proxy.Tests
         Queue.Tests
         Random.Tests

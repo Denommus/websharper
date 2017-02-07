@@ -430,7 +430,7 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                                     let scDef, (scContent, scFields) = sc.Value   
                                     let name = Resolve.getRenamed meth.CompiledName scFields
                                     scContent.Add (ExprStatement (ItemSet(Self, Value (String name), b)))
-                                    Lambda([], FieldGet(None, NonGeneric scDef, name))
+                                    Lambda([], FieldGet(None, NonGeneric scDef, name, true))
                             else
                                 let thisVar, vars =
                                     match argsAndVars with 
@@ -510,9 +510,9 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                                     }
                                 let setb =
                                     match body with
-                                    | Function([], Return (FieldGet(None, {Entity = scDef; Generics = []}, name))) ->
+                                    | Function([], Return (FieldGet(None, {Entity = scDef; Generics = []}, name, true))) ->
                                         let value = CodeReader.newId()                          
-                                        Function ([value], (ExprStatement <| FieldSet(None, NonGeneric scDef, name, Var value)))
+                                        Function ([value], (ExprStatement <| FieldSet(None, NonGeneric scDef, name, true, Var value)))
                                     | _ -> 
                                         error "unexpected form in module let body"
                                         Undefined
@@ -771,7 +771,7 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                         Generics = 0
                     }
 
-                let getBody = FieldGet(Some (Hole 0), recTyp, f.Name)
+                let getBody = FieldGet(Some (Hole 0), recTyp, f.Name, true)
                 
                 addMethod None A.MemberAnnotation.BasicInlineJavaScript getDef N.Inline false None getBody
 
@@ -784,7 +784,7 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                             Generics = 0
                         }
 
-                    let setBody = FieldSet(Some (Hole 0), recTyp, f.Name, Hole 1)
+                    let setBody = FieldSet(Some (Hole 0), recTyp, f.Name, true, Hole 1)
             
                     addMethod None A.MemberAnnotation.BasicInlineJavaScript setDef N.Inline false None setBody
 

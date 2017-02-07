@@ -95,6 +95,7 @@ let Method = Object "Concrete<Method>"
 let Str = Object "string"
 let Type = Object "Type"
 let Int = Object "int"
+let Bool = Object "bool"
 
 let ExprDefs = 
     [
@@ -108,7 +109,7 @@ let ExprDefs =
             , "Gets the value of a variable"
         "Value", [ Literal, "value" ]
             , "Contains a literal value"
-        "Application", [ Expr, "func" ; List Expr, "arguments"; Object "bool", "pure"; Option Int, "knownLength" ]
+        "Application", [ Expr, "func" ; List Expr, "arguments"; Bool, "pure"; Option Int, "knownLength" ]
             , "Function application with extra information. \
                The `pure` field should be true only when the function called has no side effects, so the side effects of \
                the expression is the same as evaluating `func` then the expressions in the `arguments` list. \
@@ -154,6 +155,8 @@ let ExprDefs =
             , "Temporary - F# function application"
         "OptimizedFSharpArg", [ Expr, "funcVar"; Object "FuncArgOptimization", "opt"]
             , "Temporary - optimized curried or tupled F# function argument"
+        "FSharpFuncValue", [ Expr, "func"; Object "FuncArgOptimization", "opt" ]
+            , "F# function optimization information"
         "Ctor", [ TypeDefinition, "typeDefinition"; Constructor, "ctor"; List Expr, "arguments" ] 
             , ".NET - Constructor call"
         "BaseCtor", [ Expr, "thisObject"; TypeDefinition, "typeDefinition"; Constructor, "ctor"; List Expr, "arguments" ]
@@ -162,9 +165,9 @@ let ExprDefs =
             , ".NET - Creating an object from a plain object"
         "Cctor", [ NonGenericTypeDefinition, "typeDefinition" ]
             , ".NET - Static constructor"
-        "FieldGet", [ Option Expr, "thisObject"; TypeDefinition, "typeDefinition"; Str, "field"]
+        "FieldGet", [ Option Expr, "thisObject"; TypeDefinition, "typeDefinition"; Str, "field"; Bool, "isPrivate" ]
             , ".NET - Field getter"
-        "FieldSet", [ Option Expr, "thisObject"; TypeDefinition, "typeDefinition"; Str, "field"; Expr, "value" ]
+        "FieldSet", [ Option Expr, "thisObject"; TypeDefinition, "typeDefinition"; Str, "field"; Bool, "isPrivate"; Expr, "value" ]
             , ".NET - Field setter"
         "Let", [ Id, "identifier"; Expr, "value"; Expr, "body" ]
             , ".NET - An immutable value definition used only in expression body"
@@ -297,7 +300,7 @@ let binaryOps =
 
 let NL = System.Environment.NewLine
 
-let letters = [| "a"; "b"; "c"; "d" |]
+let letters = [| "a"; "b"; "c"; "d"; "e" |]
 
 let code = 
     let code = ResizeArray()

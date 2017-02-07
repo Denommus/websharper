@@ -249,21 +249,21 @@ let rec transformExpression (env: Environment) (expr: Expr) =
                 match Reflection.ReadType field.DeclaringType with
                 | ConcreteType ct -> ct
                 | _ -> parsefailf "Expected a record type"
-            FieldGet(thisOpt |> Option.map tr, t, field.Name)
+            FieldGet(thisOpt |> Option.map tr, t, field.Name, field.IsPrivate)
         | Patterns.FieldSet (thisOpt, field, value) ->
             let t = 
                 match Reflection.ReadType field.DeclaringType with
                 | ConcreteType ct -> ct
                 | _ -> parsefailf "Expected a record type"
-            FieldSet(thisOpt |> Option.map tr, t, field.Name, tr value)
+            FieldSet(thisOpt |> Option.map tr, t, field.Name, field.IsPrivate, tr value)
         | Patterns.AddressOf expr ->
             match IgnoreExprSourcePos (tr expr) with
             | Var v as e ->
                 MakeRef e (fun value -> VarSet(v, value))
             | ItemGet(o, i) as e ->
                 MakeRef e (fun value -> ItemSet(o, i, value))
-            | FieldGet(o, t, f) as e ->
-                MakeRef e (fun value -> FieldSet(o, t, f, value))                
+            | FieldGet(o, t, f, p) as e ->
+                MakeRef e (fun value -> FieldSet(o, t, f, p, value))                
             | e -> parsefailf "AddressOf error" // not on a Var or ItemGet: %+A" e 
         | Patterns.AddressSet (addr, value) ->
             match addr with

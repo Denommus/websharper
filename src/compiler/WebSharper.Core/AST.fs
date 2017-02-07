@@ -111,6 +111,8 @@ and Expression =
     | CurriedApplication of Func:Expression * Arguments:list<Expression>
     /// Temporary - optimized curried or tupled F# function argument
     | OptimizedFSharpArg of FuncVar:Expression * Opt:FuncArgOptimization
+    /// F# function optimization information
+    | FSharpFuncValue of Func:Expression * Opt:FuncArgOptimization
     /// .NET - Constructor call
     | Ctor of TypeDefinition:Concrete<TypeDefinition> * Ctor:Constructor * Arguments:list<Expression>
     /// .NET - Base constructor call
@@ -120,9 +122,9 @@ and Expression =
     /// .NET - Static constructor
     | Cctor of TypeDefinition:TypeDefinition
     /// .NET - Field getter
-    | FieldGet of ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string
+    | FieldGet of ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * IsPrivate:bool
     /// .NET - Field setter
-    | FieldSet of ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * Value:Expression
+    | FieldSet of ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * IsPrivate:bool * Value:Expression
     /// .NET - An immutable value definition used only in expression body
     | Let of Identifier:Id * Value:Expression * Body:Expression
     /// .NET - An expression-level variable declaration
@@ -325,6 +327,9 @@ type Transformer() =
     /// Temporary - optimized curried or tupled F# function argument
     abstract TransformOptimizedFSharpArg : FuncVar:Expression * Opt:FuncArgOptimization -> Expression
     override this.TransformOptimizedFSharpArg (a, b) = OptimizedFSharpArg (this.TransformExpression a, b)
+    /// F# function optimization information
+    abstract TransformFSharpFuncValue : Func:Expression * Opt:FuncArgOptimization -> Expression
+    override this.TransformFSharpFuncValue (a, b) = FSharpFuncValue (this.TransformExpression a, b)
     /// .NET - Constructor call
     abstract TransformCtor : TypeDefinition:Concrete<TypeDefinition> * Ctor:Constructor * Arguments:list<Expression> -> Expression
     override this.TransformCtor (a, b, c) = Ctor (a, b, List.map this.TransformExpression c)
@@ -338,11 +343,11 @@ type Transformer() =
     abstract TransformCctor : TypeDefinition:TypeDefinition -> Expression
     override this.TransformCctor a = Cctor (a)
     /// .NET - Field getter
-    abstract TransformFieldGet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string -> Expression
-    override this.TransformFieldGet (a, b, c) = FieldGet (Option.map this.TransformExpression a, b, c)
+    abstract TransformFieldGet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * IsPrivate:bool -> Expression
+    override this.TransformFieldGet (a, b, c, d) = FieldGet (Option.map this.TransformExpression a, b, c, d)
     /// .NET - Field setter
-    abstract TransformFieldSet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * Value:Expression -> Expression
-    override this.TransformFieldSet (a, b, c, d) = FieldSet (Option.map this.TransformExpression a, b, c, this.TransformExpression d)
+    abstract TransformFieldSet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * IsPrivate:bool * Value:Expression -> Expression
+    override this.TransformFieldSet (a, b, c, d, e) = FieldSet (Option.map this.TransformExpression a, b, c, d, this.TransformExpression e)
     /// .NET - An immutable value definition used only in expression body
     abstract TransformLet : Identifier:Id * Value:Expression * Body:Expression -> Expression
     override this.TransformLet (a, b, c) = Let (this.TransformId a, this.TransformExpression b, this.TransformExpression c)
@@ -515,12 +520,13 @@ type Transformer() =
         | CallNeedingMoreArgs (a, b, c, d) -> this.TransformCallNeedingMoreArgs (a, b, c, d)
         | CurriedApplication (a, b) -> this.TransformCurriedApplication (a, b)
         | OptimizedFSharpArg (a, b) -> this.TransformOptimizedFSharpArg (a, b)
+        | FSharpFuncValue (a, b) -> this.TransformFSharpFuncValue (a, b)
         | Ctor (a, b, c) -> this.TransformCtor (a, b, c)
         | BaseCtor (a, b, c, d) -> this.TransformBaseCtor (a, b, c, d)
         | CopyCtor (a, b) -> this.TransformCopyCtor (a, b)
         | Cctor a -> this.TransformCctor a
-        | FieldGet (a, b, c) -> this.TransformFieldGet (a, b, c)
-        | FieldSet (a, b, c, d) -> this.TransformFieldSet (a, b, c, d)
+        | FieldGet (a, b, c, d) -> this.TransformFieldGet (a, b, c, d)
+        | FieldSet (a, b, c, d, e) -> this.TransformFieldSet (a, b, c, d, e)
         | Let (a, b, c) -> this.TransformLet (a, b, c)
         | NewVar (a, b) -> this.TransformNewVar (a, b)
         | Coalesce (a, b, c) -> this.TransformCoalesce (a, b, c)
@@ -655,6 +661,9 @@ type Visitor() =
     /// Temporary - optimized curried or tupled F# function argument
     abstract VisitOptimizedFSharpArg : FuncVar:Expression * Opt:FuncArgOptimization -> unit
     override this.VisitOptimizedFSharpArg (a, b) = this.VisitExpression a; ()
+    /// F# function optimization information
+    abstract VisitFSharpFuncValue : Func:Expression * Opt:FuncArgOptimization -> unit
+    override this.VisitFSharpFuncValue (a, b) = this.VisitExpression a; ()
     /// .NET - Constructor call
     abstract VisitCtor : TypeDefinition:Concrete<TypeDefinition> * Ctor:Constructor * Arguments:list<Expression> -> unit
     override this.VisitCtor (a, b, c) = (); (); List.iter this.VisitExpression c
@@ -668,11 +677,11 @@ type Visitor() =
     abstract VisitCctor : TypeDefinition:TypeDefinition -> unit
     override this.VisitCctor a = (())
     /// .NET - Field getter
-    abstract VisitFieldGet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string -> unit
-    override this.VisitFieldGet (a, b, c) = Option.iter this.VisitExpression a; (); ()
+    abstract VisitFieldGet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * IsPrivate:bool -> unit
+    override this.VisitFieldGet (a, b, c, d) = Option.iter this.VisitExpression a; (); (); ()
     /// .NET - Field setter
-    abstract VisitFieldSet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * Value:Expression -> unit
-    override this.VisitFieldSet (a, b, c, d) = Option.iter this.VisitExpression a; (); (); this.VisitExpression d
+    abstract VisitFieldSet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * IsPrivate:bool * Value:Expression -> unit
+    override this.VisitFieldSet (a, b, c, d, e) = Option.iter this.VisitExpression a; (); (); (); this.VisitExpression e
     /// .NET - An immutable value definition used only in expression body
     abstract VisitLet : Identifier:Id * Value:Expression * Body:Expression -> unit
     override this.VisitLet (a, b, c) = this.VisitId a; this.VisitExpression b; this.VisitExpression c
@@ -843,12 +852,13 @@ type Visitor() =
         | CallNeedingMoreArgs (a, b, c, d) -> this.VisitCallNeedingMoreArgs (a, b, c, d)
         | CurriedApplication (a, b) -> this.VisitCurriedApplication (a, b)
         | OptimizedFSharpArg (a, b) -> this.VisitOptimizedFSharpArg (a, b)
+        | FSharpFuncValue (a, b) -> this.VisitFSharpFuncValue (a, b)
         | Ctor (a, b, c) -> this.VisitCtor (a, b, c)
         | BaseCtor (a, b, c, d) -> this.VisitBaseCtor (a, b, c, d)
         | CopyCtor (a, b) -> this.VisitCopyCtor (a, b)
         | Cctor a -> this.VisitCctor a
-        | FieldGet (a, b, c) -> this.VisitFieldGet (a, b, c)
-        | FieldSet (a, b, c, d) -> this.VisitFieldSet (a, b, c, d)
+        | FieldGet (a, b, c, d) -> this.VisitFieldGet (a, b, c, d)
+        | FieldSet (a, b, c, d, e) -> this.VisitFieldSet (a, b, c, d, e)
         | Let (a, b, c) -> this.VisitLet (a, b, c)
         | NewVar (a, b) -> this.VisitNewVar (a, b)
         | Coalesce (a, b, c) -> this.VisitCoalesce (a, b, c)
@@ -933,12 +943,13 @@ module IgnoreSourcePos =
     let (|CallNeedingMoreArgs|_|) x = match ignoreExprSourcePos x with CallNeedingMoreArgs (a, b, c, d) -> Some (a, b, c, d) | _ -> None
     let (|CurriedApplication|_|) x = match ignoreExprSourcePos x with CurriedApplication (a, b) -> Some (a, b) | _ -> None
     let (|OptimizedFSharpArg|_|) x = match ignoreExprSourcePos x with OptimizedFSharpArg (a, b) -> Some (a, b) | _ -> None
+    let (|FSharpFuncValue|_|) x = match ignoreExprSourcePos x with FSharpFuncValue (a, b) -> Some (a, b) | _ -> None
     let (|Ctor|_|) x = match ignoreExprSourcePos x with Ctor (a, b, c) -> Some (a, b, c) | _ -> None
     let (|BaseCtor|_|) x = match ignoreExprSourcePos x with BaseCtor (a, b, c, d) -> Some (a, b, c, d) | _ -> None
     let (|CopyCtor|_|) x = match ignoreExprSourcePos x with CopyCtor (a, b) -> Some (a, b) | _ -> None
     let (|Cctor|_|) x = match ignoreExprSourcePos x with Cctor a -> Some a | _ -> None
-    let (|FieldGet|_|) x = match ignoreExprSourcePos x with FieldGet (a, b, c) -> Some (a, b, c) | _ -> None
-    let (|FieldSet|_|) x = match ignoreExprSourcePos x with FieldSet (a, b, c, d) -> Some (a, b, c, d) | _ -> None
+    let (|FieldGet|_|) x = match ignoreExprSourcePos x with FieldGet (a, b, c, d) -> Some (a, b, c, d) | _ -> None
+    let (|FieldSet|_|) x = match ignoreExprSourcePos x with FieldSet (a, b, c, d, e) -> Some (a, b, c, d, e) | _ -> None
     let (|Let|_|) x = match ignoreExprSourcePos x with Let (a, b, c) -> Some (a, b, c) | _ -> None
     let (|NewVar|_|) x = match ignoreExprSourcePos x with NewVar (a, b) -> Some (a, b) | _ -> None
     let (|Coalesce|_|) x = match ignoreExprSourcePos x with Coalesce (a, b, c) -> Some (a, b, c) | _ -> None
@@ -1020,12 +1031,13 @@ module Debug =
         | CallNeedingMoreArgs (a, b, c, d) -> "CallNeedingMoreArgs" + "(" + defaultArg (Option.map PrintExpression a) "_" + ", " + b.Entity.Value.FullName + ", " + c.Entity.Value.MethodName + ", " + "[" + String.concat "; " (List.map PrintExpression d) + "]" + ")"
         | CurriedApplication (a, b) -> "CurriedApplication" + "(" + PrintExpression a + ", " + "[" + String.concat "; " (List.map PrintExpression b) + "]" + ")"
         | OptimizedFSharpArg (a, b) -> "OptimizedFSharpArg" + "(" + PrintExpression a + ", " + PrintObject b + ")"
+        | FSharpFuncValue (a, b) -> "FSharpFuncValue" + "(" + PrintExpression a + ", " + PrintObject b + ")"
         | Ctor (a, b, c) -> "Ctor" + "(" + a.Entity.Value.FullName + ", " + ".ctor" + ", " + "[" + String.concat "; " (List.map PrintExpression c) + "]" + ")"
         | BaseCtor (a, b, c, d) -> "BaseCtor" + "(" + PrintExpression a + ", " + b.Entity.Value.FullName + ", " + ".ctor" + ", " + "[" + String.concat "; " (List.map PrintExpression d) + "]" + ")"
         | CopyCtor (a, b) -> "CopyCtor" + "(" + a.Value.FullName + ", " + PrintExpression b + ")"
         | Cctor a -> "Cctor" + "(" + a.Value.FullName + ")"
-        | FieldGet (a, b, c) -> "FieldGet" + "(" + defaultArg (Option.map PrintExpression a) "_" + ", " + b.Entity.Value.FullName + ", " + PrintObject c + ")"
-        | FieldSet (a, b, c, d) -> "FieldSet" + "(" + defaultArg (Option.map PrintExpression a) "_" + ", " + b.Entity.Value.FullName + ", " + PrintObject c + ", " + PrintExpression d + ")"
+        | FieldGet (a, b, c, d) -> "FieldGet" + "(" + defaultArg (Option.map PrintExpression a) "_" + ", " + b.Entity.Value.FullName + ", " + PrintObject c + ", " + PrintObject d + ")"
+        | FieldSet (a, b, c, d, e) -> "FieldSet" + "(" + defaultArg (Option.map PrintExpression a) "_" + ", " + b.Entity.Value.FullName + ", " + PrintObject c + ", " + PrintObject d + ", " + PrintExpression e + ")"
         | Let (a, b, c) -> "Let" + "(" + string a + ", " + PrintExpression b + ", " + PrintExpression c + ")"
         | NewVar (a, b) -> "NewVar" + "(" + string a + ", " + PrintExpression b + ")"
         | Coalesce (a, b, c) -> "Coalesce" + "(" + PrintExpression a + ", " + PrintObject b + ", " + PrintExpression c + ")"

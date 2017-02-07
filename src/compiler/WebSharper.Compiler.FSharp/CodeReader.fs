@@ -100,6 +100,11 @@ let getFuncArg t =
                 else NotOptimizedFuncArg
     get [] t    
 
+let funcValue t expr =
+    match getFuncArg t with 
+    | NotOptimizedFuncArg -> expr
+    | opt -> FSharpFuncValue(expr, opt)   
+
 exception ParseError of message: string with
     override this.Message = this.message 
 
@@ -526,10 +531,15 @@ let rec (|CompGenClosure|_|) (expr: FSharpExpr) =
     | _ -> None
 
 let applyCurried f xs =
-    if List.length xs <= 3 then
+//    let rec get args f =
+//        match f with
+//        | I.Function(g, Return body) ->
+//    match get [] f with
+//    
+//    if List.length xs <= 3 then
         xs |> List.fold (fun e a -> Application (e, [a], false, Some 1)) f
-    else  
-        JSRuntime.Apply f xs
+//    else  
+//        JSRuntime.Apply f xs
 
 let rec transformExpression (env: Environment) (expr: FSharpExpr) =
     let inline tr x = transformExpression env x
@@ -607,7 +617,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
             if id.IsMutable then
                 Sequential [ NewVar(i, trValue); tr body ]
             else
-                Let (i, trValue, tr body)
+                Let (i, funcValue value.Type trValue, tr body)
         | P.LetRec(defs, body) ->
             let mutable env = env
             let ids = defs |> List.map (fun (id, _) ->
@@ -618,7 +628,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
             let inline tr x = transformExpression env x
             LetRec (
                 Seq.zip ids defs 
-                |> Seq.map (fun (i, (_, v)) -> i, tr v) |> List.ofSeq, 
+                |> Seq.map (fun (i, (_, v)) -> i, funcValue v.Type (tr v)) |> List.ofSeq, 
                 tr body
             )
         | P.Call(this, meth, typeGenerics, methodGenerics, arguments) ->
@@ -810,7 +820,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 else                            
                     Sequential [
                         for a, f in Seq.zip items fields ->
-                            FieldSet(Some This, t, f.Name, tr a)
+                            FieldSet(Some This, t, f.Name, f.Accessibility.IsPrivate, tr a)
                     ]
         | P.DecisionTree (matchValue, cases) ->
             let trMatchVal = transformExpression env matchValue
@@ -909,13 +919,13 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 match sr.ReadType env.TParams typ with
                 | ConcreteType ct -> ct
                 | _ -> parsefailf "Expected a record type"
-            FieldGet(thisOpt |> Option.map tr, t, field.Name)
+            FieldGet(thisOpt |> Option.map tr, t, field.Name, field.Accessibility.IsPrivate)
         | P.FSharpFieldSet (thisOpt, typ, field, value) ->
             let t = 
                 match sr.ReadType env.TParams typ with
                 | ConcreteType ct -> ct
                 | _ -> parsefailf "Expected a record type"
-            FieldSet(thisOpt |> Option.map tr, t, field.Name, tr value)
+            FieldSet(thisOpt |> Option.map tr, t, field.Name, field.Accessibility.IsPrivate, tr value)
         | P.AddressOf expr ->
             let isStructUnionGet =
                 let t = expr.Type
@@ -934,13 +944,13 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 let ov = newId()
                 let iv = newId()
                 Let (ov, o, Let(iv, i, MakeRef (ItemGet(Var ov, Var iv)) (fun value -> ItemSet(Var ov, Var iv, value))))
-            | FieldGet(o, t, f) ->
+            | FieldGet(o, t, f, p) ->
                 match o with
                 | Some o ->
                     let ov = newId()
-                    Let (ov, o, MakeRef (FieldGet(Some (Var ov), t, f)) (fun value -> FieldSet(Some (Var ov), t, f, value)))     
+                    Let (ov, o, MakeRef (FieldGet(Some (Var ov), t, f, p)) (fun value -> FieldSet(Some (Var ov), t, f, p, value)))     
                 | _ ->
-                    MakeRef e (fun value -> FieldSet(None, t, f, value))  
+                    MakeRef e (fun value -> FieldSet(None, t, f, p, value))  
             | Application(ItemGet (r, Value (String "get")), [], _, _) ->
                 r   
             | Call(None, td, m, []) ->

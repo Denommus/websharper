@@ -37,6 +37,7 @@
     <Compile Include="ObjExpr.fs" />
     <Compile Include="Operators.fs" />
     <Compile Include="Option.fs" />
+    <Compile Include="Optimizations.fs" />
     <Compile Include="Proxy.fs" />
     <Compile Include="Queue.fs" />
     <Compile Include="Random.fs" />

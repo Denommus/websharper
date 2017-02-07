@@ -113,6 +113,18 @@ type FuncArgVisitor(opts: FuncArgOptimization list, margs: Id list, mems) =
             | a -> this.VisitExpression a     
         )
 
+//    override this.VisitFieldSet(obj, typ, name, isPrivate, value) =
+//        match obj with
+//        | Some o -> this.VisitExpression(o)
+//        | _ -> ()
+//        if isPrivate then
+//            match IgnoreExprSourcePos value with
+//            | ArgIndex j ->
+//                calls.[j].Add(PrivateField name, 0)
+//            | a -> this.VisitExpression(value)
+//        else
+//            this.VisitExpression(value)
+
     override this.VisitCurriedApplication(f, args) =
         match IgnoreExprSourcePos f with
         | ArgIndex i ->
@@ -152,11 +164,11 @@ type FuncArgTransformer(al: list<Id * FuncArgOptimization>) =
         | I.Var f ->
             match cargs.TryGetValue f with
             | true, CurriedFuncArg a ->
-                printfn "transforming curried application, length: %d args %d" a args.Length
+//                printfn "transforming curried application, length: %d args %d" a args.Length
                 let ucArgs, restArgs = args |> List.map this.TransformExpression |> List.splitAt a
                 let inner = Application(Var f, ucArgs, false, Some a)
                 let res = CodeReader.applyCurried inner restArgs
-                printfn "result: %s" (Debug.PrintExpression res)
+//                printfn "result: %s" (Debug.PrintExpression res)
                 res
             | true, TupledFuncArg a ->
                 match args with
@@ -203,7 +215,7 @@ type ResolveFuncArgs(comp: Compilation) =
         match rArgs.TryGetValue(mi) with
         | true, v -> 
             if value <> v then
-                printfn "Changing curried optimization %s - %d : %A" (printMem mem) i value
+//                printfn "Changing curried optimization %s - %d : %A" (printMem mem) i value
                 rArgs.[mi] <- value
                 match callsTo.TryGetValue(mi) with
                 | true, ct ->
@@ -211,7 +223,7 @@ type ResolveFuncArgs(comp: Compilation) =
                         setRArgs c value
                 | _ -> ()
         | _ ->
-            printfn "Setting curried optimization %s - %d : %A" (printMem mem) i value
+//            printfn "Setting curried optimization %s - %d : %A" (printMem mem) i value
             rArgs.[mi] <- value
             rArgs.[mi] <- value
 

@@ -266,9 +266,9 @@ let varEvalOrder (vars : Id list) expr =
             | Ctor(_, _, a) -> 
                 List.iter eval a
                 stop()
-            | FieldGet(a, _, _) ->
+            | FieldGet(a, _, _, _) ->
                 Option.iter eval a
-            | FieldSet(a, _, _, b) ->   
+            | FieldSet(a, _, _, _, b) ->   
                 Option.iter eval a
                 eval b
                 stop()
@@ -284,6 +284,9 @@ let varEvalOrder (vars : Id list) expr =
         | StatementSourcePos (_, a) -> evalSt a
         | Block a -> List.iter evalSt a
         | If (a, b, c) -> Conditional (a, IgnoredStatementExpr b, IgnoredStatementExpr c) |> eval
+        | Throw (a) -> 
+            eval a
+            stop()
         | _ -> fail()
                
     eval expr
@@ -950,3 +953,111 @@ type TransformerWithSourcePos(comp: Metadata.ICompilation) =
         let res = this.TransformStatement statement
         currentSourcePos <- p
         StatementSourcePos(pos, res)
+
+open IgnoreSourcePos
+
+let containsVar v expr =
+    CountVarOccurence(v).Get(expr) > 0
+
+type ForAllSubExpr(checker) =
+    inherit Visitor()
+    let mutable ok = true
+
+    override this.VisitExpression(e) =
+        if not (checker e) then
+            ok <- false
+        elif ok then base.VisitExpression e
+
+    member this.Check(e) = 
+        ok <- true
+        this.VisitExpression(e)
+        ok
+
+type BottomUpTransformer(tr) =
+    inherit Transformer()
+
+    override this.TransformExpression(e) =
+        base.TransformExpression(e) |> tr
+
+let BottomUp tr expr =
+    BottomUpTransformer(tr).TransformExpression(expr)  
+
+let callArraySlice =
+    (Global ["Array"]).[Value (String "prototype")].[Value (String "slice")].[Value (String "call")]   
+
+let sliceFromArguments slice =
+    Application (callArraySlice, Arguments :: [ for a in slice -> !~ (Int a) ], true, None)
+
+let (|Lambda|_|) e = 
+    match e with
+    | Function(args, Return body) -> Some (args, body, true)
+    | Function(args, ExprStatement body) -> Some (args, body, false)
+    | _ -> None
+
+let (|TupledLambda|_|) expr =
+    match expr with
+    | Lambda ([tupledArg], b, isReturn) ->
+        // when the tuple itself is bound to a name, there will be an extra let expression
+        let tupledArg, b =
+            match b with
+            | Let (newTA, Var t, b) when t = tupledArg -> 
+                newTA, SubstituteVar(tupledArg, Var newTA).TransformExpression b
+            | _ -> tupledArg, b
+        let rec loop acc = function
+            | Let (v, ItemGet(Var t, Value (Int i)), body) when t = tupledArg ->
+                loop ((int i, v) :: acc) body
+            | body -> 
+                if List.isEmpty acc then None else
+                let m = Map.ofList acc
+                Some (
+                    [ for i in 0 .. (acc |> Seq.map fst |> Seq.max) -> 
+                        match m |> Map.tryFind i with
+                        | None -> Id.New(mut = false)
+                        | Some v -> v 
+                    ], body)
+        match loop [] b with
+        | None -> None
+        | Some (vars, body) -> 
+            if containsVar tupledArg body then
+                let (|TupleGet|_|) e =
+                    match e with 
+                    | ItemGet(Var t, Value (Int i)) when t = tupledArg ->
+                        Some (int i)
+                    | _ -> None 
+                let maxTupleGet = ref (vars.Length - 1)
+                let checkTupleGet e =
+                    match e with 
+                    | TupleGet i -> 
+                        if i > !maxTupleGet then maxTupleGet := i
+                        true
+                    | Var t when t = tupledArg -> false
+                    | _ -> true
+                let alwaysTupleGet e =
+                    ForAllSubExpr(checkTupleGet).Check(e)
+                if alwaysTupleGet body then
+                    let vars = 
+                        if List.length vars > !maxTupleGet then vars
+                        else vars @ [ for k in List.length vars .. !maxTupleGet -> Id.New() ]
+                    Some (vars, body |> BottomUp (function TupleGet i -> Var vars.[i] | e -> e), isReturn)
+                else 
+                    // if we would use the arguments object for anything else than getting
+                    // a tuple item, convert it to an array
+                    Some (vars, Let (tupledArg, sliceFromArguments [], body), isReturn)
+            else
+                Some (vars, body, isReturn)
+    | _ -> None
+
+let (|CurriedLambda|_|) expr =
+    let rec curr args expr =
+        match expr with
+        | Lambda ([a], b, true) ->
+            curr (a :: args) b
+        | Lambda ([a], b, false) ->
+            if not (List.isEmpty args) then
+                Some (List.rev (a :: args), b, false) 
+            else None
+        | _ -> 
+            if List.length args > 1 then
+                Some (List.rev args, expr, true)
+            else None
+    curr [] expr

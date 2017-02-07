@@ -23,6 +23,7 @@ module WebSharper.Compiler.Translator
  
 open WebSharper.Core
 open WebSharper.Core.AST
+open WebSharper.Compiler
 
 module M = WebSharper.Core.Metadata
 
@@ -38,8 +39,8 @@ type CheckNoInvalidJSForms(comp: Compilation, isInline) as this =
     override this.TransformSelf () = invalidForm "Self"
     override this.TransformBase () = invalidForm "Base"
     override this.TransformHole a = if isInline then base.TransformHole(a) else invalidForm "Hole"
-    override this.TransformFieldGet (_,_,_) = invalidForm "FieldGet"
-    override this.TransformFieldSet (_,_,_,_) = invalidForm "FieldSet"
+    override this.TransformFieldGet (_,_,_,_) = invalidForm "FieldGet"
+    override this.TransformFieldSet (_,_,_,_,_) = invalidForm "FieldSet"
     override this.TransformLet (a, b, c) = if isInline then base.TransformLet(a, b, c) else invalidForm "Let" 
     override this.TransformLetRec (_,_) = invalidForm "LetRec"
     override this.TransformStatementExpr (a, b) = if isInline then base.TransformStatementExpr(a, b) else invalidForm "StatementExpr"
@@ -531,11 +532,11 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         match opt with
         | NotOptimizedFuncArg -> expr
         | CurriedFuncArg currying ->
-            printfn "decurrying (%O) %A: %s" this.CurrentSourcePos.Value currying (Debug.PrintExpression expr)
+//            printfn "decurrying (%O) %A: %s" this.CurrentSourcePos.Value currying (Debug.PrintExpression expr)
             let rec dc currying cargs expr =
                 if currying = 0 then List.rev cargs, expr else
                     match expr with
-                    | Optimizations.Lambda ([arg], body, _) ->
+                    | Lambda ([arg], body, _) ->
                         dc (currying - 1) (arg :: cargs) body             
                     | _ -> 
                         let i = Id.New(mut = false)
@@ -552,13 +553,13 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                 | _ ->
                     let cargs, body = dc currying [] expr
                     Lambda(List.ofSeq cargs, body)
-            printfn "result %s" (Debug.PrintExpression res)
+//            printfn "result %s" (Debug.PrintExpression res)
             res
         | TupledFuncArg tupling -> 
-            printfn "detupling (%O) %A: %s" this.CurrentSourcePos.Value tupling (Debug.PrintExpression expr)
+//            printfn "detupling (%O) %A: %s" this.CurrentSourcePos.Value tupling (Debug.PrintExpression expr)
             let res =
                 match expr with
-                | Optimizations.TupledLambda (args, body, _) ->
+                | TupledLambda (args, body, _) ->
                     Lambda(List.ofSeq args, body)
                 | _ ->
                     match IgnoreExprSourcePos expr with
@@ -567,7 +568,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                     | _ ->
                         let args = List.init tupling (fun _ -> Id.New(mut = false))
                         Lambda(args, Application(expr, [NewArray(args |> List.map Var)], false, Some 1))
-            printfn "result %s" (Debug.PrintExpression res)
+//            printfn "result %s" (Debug.PrintExpression res)
             res
 
     override this.TransformOptimizedFSharpArg(f, opt) =
@@ -653,9 +654,9 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
             Application(GlobalAccess address, trArgs(), opts.IsPure, Some meth.Entity.Value.Parameters.Length)
         | M.Inline ->
             let res = Substitution(trArgs(), ?thisObj = trThisObj).TransformExpression(expr)
-            if opts.FuncArgs.IsSome then
-                printfn "func arg inline: %s" (Debug.PrintExpression expr)
-                printfn "func arg inline result: %s" (Debug.PrintExpression res)
+//            if opts.FuncArgs.IsSome then
+//                printfn "func arg inline: %s" (Debug.PrintExpression expr)
+//                printfn "func arg inline result: %s" (Debug.PrintExpression res)
             res
         | M.NotCompiledInline ->
             let ge =
@@ -1066,7 +1067,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         | Some self -> GlobalAccess self
         | _ -> this.Error ("Self address missing")
 
-    override this.TransformFieldGet (expr, typ, field) =
+    override this.TransformFieldGet (expr, typ, field, isPrivate) =
         if comp.HasGraph then
             this.AddTypeDependency typ.Entity
         match comp.LookupFieldInfo (typ.Entity, field) with
@@ -1113,7 +1114,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         | LookupFieldError err ->
             this.Error err
 
-    override this.TransformFieldSet (expr, typ, field, value) =
+    override this.TransformFieldSet (expr, typ, field, isPrivate, value) =
         if comp.HasGraph then
             this.AddTypeDependency typ.Entity
         match comp.LookupFieldInfo (typ.Entity, field) with

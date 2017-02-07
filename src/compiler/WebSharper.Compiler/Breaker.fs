@@ -23,6 +23,7 @@
 module WebSharper.Compiler.Breaker
 
 open WebSharper.Core.AST
+open WebSharper.Compiler
 
 module I = IgnoreSourcePos
 
@@ -195,7 +196,58 @@ let (|PropSetters|_|) p =
         ) (Some []) |> Option.map (fun setters -> setters, objVar)
     | _ -> None
 
+type OptimizeLocalTupledFunc(var, tupling) =
+    inherit Transformer()
+
+    override this.TransformVar(v) =
+        if v = var then
+            let t = Id.New(mut = false)
+            Lambda([t], Application(Var v, List.init tupling (fun i -> (Var t).[Value (Int i)]), false, Some 1))
+        else Var v  
+
+    override this.TransformApplication(func, args, isPure, length) =
+        match func with
+        | I.Var v when v = var ->                    
+            match args with
+            | [ I.NewArray ts ] when ts.Length = tupling ->
+                Application (func, ts |> List.map this.TransformExpression, isPure, Some tupling)
+            | [ t ] ->
+                Application((Var v).[Value (String "apply")], [ this.TransformExpression t ],  isPure, None)               
+            | _ -> failwith "unexpected tupled FSharpFunc applied with multiple arguments"
+        | _ -> base.TransformApplication(func, args, isPure, length)
+
+type OptimizeLocalCurriedFunc(var, currying) =
+    inherit Transformer()
+
+//    let applyArgs = ResizeArray()
+
+    override this.TransformVar(v) =
+        if v = var then
+            let ids = List.init currying (fun _ -> Id.New(mut = false))
+            CurriedLambda(ids, Application(Var v, ids |> List.map Var, false, Some currying))    
+        else Var v  
+
+//    override this.TransformApplication(func, args, isPure, length) =
+//        let def() =
+//            applyArgs.Clear()
+//            base.TransformApplication(func, args, isPure, length)
+//        match args with
+//        | [ a ] ->
+//            match a with
+//            | I.Var v when v = var ->
+//                applyArgs.Add(a)
+//                    
+//        | _ -> def()
+//        applyArgs.Add(args)
+//        let trFunc 
+//        match func with
+//        | I.Var v when v = var ->                    
+//                
+//        | _ -> base.TransformApplication(func, args, isPure, length)
+
 let rec removeLets expr =
+    let func vars body isReturn =
+        if isReturn then Lambda(vars, body) else Function(vars, ExprStatement body)
     match expr with
     | Application (I.Let (var, value, body), xs, p, l) ->
         Let (var, value, Application (body, xs, p, l)) |> removeLets
@@ -213,6 +265,22 @@ let rec removeLets expr =
             Application(func, [value], p, l)
     | Let (objVar, I.Object objFields, I.Sequential (PropSetters (setters, v))) when v = objVar ->
         objFields @ setters |> Object
+    | Let (a, I.FSharpFuncValue(b, opt), c) ->
+        let def() = Let(a, b, c) |> removeLets
+        match opt with
+        | CurriedFuncArg n ->
+            match b with 
+            | CurriedLambda (bArgs, bBody, isReturn) ->
+                Let(a, func bArgs bBody isReturn, OptimizeLocalCurriedFunc(a, List.length bArgs).TransformExpression(c))
+                |> removeLets
+            | _ -> def()
+        | TupledFuncArg n ->
+            match b with
+            | TupledLambda (bArgs, bBody, isReturn) ->
+                Let(a, func bArgs bBody isReturn, OptimizeLocalTupledFunc(a, List.length bArgs).TransformExpression(c))
+                |> removeLets
+            | _ -> def()
+        | _ -> def()
     | Let(a, b, c) ->
         if isStronglyPureExpr b then 
             match CountVarOccurence(a).Get(c) with
@@ -224,6 +292,7 @@ let rec removeLets expr =
             | _ -> expr
         elif isPureExpr b && CountVarOccurence(a).Get(c) = 0 then c
         else expr
+    | FSharpFuncValue(expr, _) -> expr
     | _ -> expr
 
 let rec breakExpr expr : Broken<BreakResult> =
@@ -495,17 +564,17 @@ let rec breakExpr expr : Broken<BreakResult> =
         |> mapBroken (fun l -> Ctor(a, b, l))
     | CopyCtor (a, b) ->
         br b |> toBrExpr |> mapBroken (fun bE -> CopyCtor (a, bE))
-    | FieldGet(a, b, c) ->
+    | FieldGet(a, b, c, d) ->
         match a with
         | Some a ->
-            br a |> toBrExpr |> mapBroken (fun aE -> FieldGet (Some aE, b, c))
+            br a |> toBrExpr |> mapBroken (fun aE -> FieldGet (Some aE, b, c, d))
         | None -> broken expr
-    | FieldSet(a, b, c, d) ->
+    | FieldSet(a, b, c, d, e) ->
         match a with
         | Some a ->
-            comb2 (fun (aE, dE) -> FieldSet (Some aE, b, c, dE)) a d
+            comb2 (fun (aE, eE) -> FieldSet (Some aE, b, c, d, eE)) a e
         | None ->
-            br d |> toBrExpr |> mapBroken (fun dE -> FieldSet (None, b, c, dE))            
+            br e |> toBrExpr |> mapBroken (fun eE -> FieldSet (None, b, c, d, eE))            
     | Let(var, I.Function(args, body), c) 
         when notMutatedOrCaptured var c && CountVarOccurence(var).Get(c) >= 2 ->
             let brC = br c
@@ -667,6 +736,19 @@ let rec breakExpr expr : Broken<BreakResult> =
     | e ->
         failwithf "Break expression error: %A" e
 
+/// break expression to statements, if result would be a temporary var,
+/// use `f` (Return or Throw) to transform it to a statement
+and toStatementsSpec f b =
+    match b.Body with
+    | ResultExpr _ -> toStatements f b
+    | ResultVar v -> 
+        seq {
+            yield! toDecls b.Variables
+            yield! 
+                b.Statements 
+                |> Seq.collect (TransformVarSets(v, fun a -> StatementExpr(f a, None)).TransformStatement >> breakSt)
+        }
+
 and private breakSt statement : Statement seq =
     let inline brE x = breakExpr x
     let inline brS x = breakSt x
@@ -686,7 +768,7 @@ and private breakSt statement : Statement seq =
     | ExprStatement a ->
         brE a |> toStatementExpr
     | Return a ->
-        brE a |> toStatements Return
+        brE a |> toStatementsSpec Return
     | Block a ->
         if a |> List.forall (function I.ExprStatement _ -> true | _ -> false) then
             a |> List.map (function I.ExprStatement e -> e | _ -> failwith "impossible")
@@ -814,7 +896,7 @@ and private breakSt statement : Statement seq =
         | _ ->
             brE a |> toStatements (fun aE -> If (aE, combine (brS b), combine (brS c)))
     | Throw(a) -> 
-        brE a |> toStatements Throw
+        brE a |> toStatementsSpec Throw
     | TryWith (a, b, c) ->
         Seq.singleton (TryWith (combine (brS a), b, combine (brS c)))
     | TryFinally (a, b) ->           
