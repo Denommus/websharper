@@ -122,9 +122,9 @@ and Expression =
     /// .NET - Static constructor
     | Cctor of TypeDefinition:TypeDefinition
     /// .NET - Field getter
-    | FieldGet of ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * IsPrivate:bool
+    | FieldGet of ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string
     /// .NET - Field setter
-    | FieldSet of ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * IsPrivate:bool * Value:Expression
+    | FieldSet of ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * Value:Expression
     /// .NET - An immutable value definition used only in expression body
     | Let of Identifier:Id * Value:Expression * Body:Expression
     /// .NET - An expression-level variable declaration
@@ -343,11 +343,11 @@ type Transformer() =
     abstract TransformCctor : TypeDefinition:TypeDefinition -> Expression
     override this.TransformCctor a = Cctor (a)
     /// .NET - Field getter
-    abstract TransformFieldGet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * IsPrivate:bool -> Expression
-    override this.TransformFieldGet (a, b, c, d) = FieldGet (Option.map this.TransformExpression a, b, c, d)
+    abstract TransformFieldGet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string -> Expression
+    override this.TransformFieldGet (a, b, c) = FieldGet (Option.map this.TransformExpression a, b, c)
     /// .NET - Field setter
-    abstract TransformFieldSet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * IsPrivate:bool * Value:Expression -> Expression
-    override this.TransformFieldSet (a, b, c, d, e) = FieldSet (Option.map this.TransformExpression a, b, c, d, this.TransformExpression e)
+    abstract TransformFieldSet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * Value:Expression -> Expression
+    override this.TransformFieldSet (a, b, c, d) = FieldSet (Option.map this.TransformExpression a, b, c, this.TransformExpression d)
     /// .NET - An immutable value definition used only in expression body
     abstract TransformLet : Identifier:Id * Value:Expression * Body:Expression -> Expression
     override this.TransformLet (a, b, c) = Let (this.TransformId a, this.TransformExpression b, this.TransformExpression c)
@@ -525,8 +525,8 @@ type Transformer() =
         | BaseCtor (a, b, c, d) -> this.TransformBaseCtor (a, b, c, d)
         | CopyCtor (a, b) -> this.TransformCopyCtor (a, b)
         | Cctor a -> this.TransformCctor a
-        | FieldGet (a, b, c, d) -> this.TransformFieldGet (a, b, c, d)
-        | FieldSet (a, b, c, d, e) -> this.TransformFieldSet (a, b, c, d, e)
+        | FieldGet (a, b, c) -> this.TransformFieldGet (a, b, c)
+        | FieldSet (a, b, c, d) -> this.TransformFieldSet (a, b, c, d)
         | Let (a, b, c) -> this.TransformLet (a, b, c)
         | NewVar (a, b) -> this.TransformNewVar (a, b)
         | Coalesce (a, b, c) -> this.TransformCoalesce (a, b, c)
@@ -677,11 +677,11 @@ type Visitor() =
     abstract VisitCctor : TypeDefinition:TypeDefinition -> unit
     override this.VisitCctor a = (())
     /// .NET - Field getter
-    abstract VisitFieldGet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * IsPrivate:bool -> unit
-    override this.VisitFieldGet (a, b, c, d) = Option.iter this.VisitExpression a; (); (); ()
+    abstract VisitFieldGet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string -> unit
+    override this.VisitFieldGet (a, b, c) = Option.iter this.VisitExpression a; (); ()
     /// .NET - Field setter
-    abstract VisitFieldSet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * IsPrivate:bool * Value:Expression -> unit
-    override this.VisitFieldSet (a, b, c, d, e) = Option.iter this.VisitExpression a; (); (); (); this.VisitExpression e
+    abstract VisitFieldSet : ThisObject:option<Expression> * TypeDefinition:Concrete<TypeDefinition> * Field:string * Value:Expression -> unit
+    override this.VisitFieldSet (a, b, c, d) = Option.iter this.VisitExpression a; (); (); this.VisitExpression d
     /// .NET - An immutable value definition used only in expression body
     abstract VisitLet : Identifier:Id * Value:Expression * Body:Expression -> unit
     override this.VisitLet (a, b, c) = this.VisitId a; this.VisitExpression b; this.VisitExpression c
@@ -857,8 +857,8 @@ type Visitor() =
         | BaseCtor (a, b, c, d) -> this.VisitBaseCtor (a, b, c, d)
         | CopyCtor (a, b) -> this.VisitCopyCtor (a, b)
         | Cctor a -> this.VisitCctor a
-        | FieldGet (a, b, c, d) -> this.VisitFieldGet (a, b, c, d)
-        | FieldSet (a, b, c, d, e) -> this.VisitFieldSet (a, b, c, d, e)
+        | FieldGet (a, b, c) -> this.VisitFieldGet (a, b, c)
+        | FieldSet (a, b, c, d) -> this.VisitFieldSet (a, b, c, d)
         | Let (a, b, c) -> this.VisitLet (a, b, c)
         | NewVar (a, b) -> this.VisitNewVar (a, b)
         | Coalesce (a, b, c) -> this.VisitCoalesce (a, b, c)
@@ -948,8 +948,8 @@ module IgnoreSourcePos =
     let (|BaseCtor|_|) x = match ignoreExprSourcePos x with BaseCtor (a, b, c, d) -> Some (a, b, c, d) | _ -> None
     let (|CopyCtor|_|) x = match ignoreExprSourcePos x with CopyCtor (a, b) -> Some (a, b) | _ -> None
     let (|Cctor|_|) x = match ignoreExprSourcePos x with Cctor a -> Some a | _ -> None
-    let (|FieldGet|_|) x = match ignoreExprSourcePos x with FieldGet (a, b, c, d) -> Some (a, b, c, d) | _ -> None
-    let (|FieldSet|_|) x = match ignoreExprSourcePos x with FieldSet (a, b, c, d, e) -> Some (a, b, c, d, e) | _ -> None
+    let (|FieldGet|_|) x = match ignoreExprSourcePos x with FieldGet (a, b, c) -> Some (a, b, c) | _ -> None
+    let (|FieldSet|_|) x = match ignoreExprSourcePos x with FieldSet (a, b, c, d) -> Some (a, b, c, d) | _ -> None
     let (|Let|_|) x = match ignoreExprSourcePos x with Let (a, b, c) -> Some (a, b, c) | _ -> None
     let (|NewVar|_|) x = match ignoreExprSourcePos x with NewVar (a, b) -> Some (a, b) | _ -> None
     let (|Coalesce|_|) x = match ignoreExprSourcePos x with Coalesce (a, b, c) -> Some (a, b, c) | _ -> None
@@ -1036,8 +1036,8 @@ module Debug =
         | BaseCtor (a, b, c, d) -> "BaseCtor" + "(" + PrintExpression a + ", " + b.Entity.Value.FullName + ", " + ".ctor" + ", " + "[" + String.concat "; " (List.map PrintExpression d) + "]" + ")"
         | CopyCtor (a, b) -> "CopyCtor" + "(" + a.Value.FullName + ", " + PrintExpression b + ")"
         | Cctor a -> "Cctor" + "(" + a.Value.FullName + ")"
-        | FieldGet (a, b, c, d) -> "FieldGet" + "(" + defaultArg (Option.map PrintExpression a) "_" + ", " + b.Entity.Value.FullName + ", " + PrintObject c + ", " + PrintObject d + ")"
-        | FieldSet (a, b, c, d, e) -> "FieldSet" + "(" + defaultArg (Option.map PrintExpression a) "_" + ", " + b.Entity.Value.FullName + ", " + PrintObject c + ", " + PrintObject d + ", " + PrintExpression e + ")"
+        | FieldGet (a, b, c) -> "FieldGet" + "(" + defaultArg (Option.map PrintExpression a) "_" + ", " + b.Entity.Value.FullName + ", " + PrintObject c + ")"
+        | FieldSet (a, b, c, d) -> "FieldSet" + "(" + defaultArg (Option.map PrintExpression a) "_" + ", " + b.Entity.Value.FullName + ", " + PrintObject c + ", " + PrintExpression d + ")"
         | Let (a, b, c) -> "Let" + "(" + string a + ", " + PrintExpression b + ", " + PrintExpression c + ")"
         | NewVar (a, b) -> "NewVar" + "(" + string a + ", " + PrintExpression b + ")"
         | Coalesce (a, b, c) -> "Coalesce" + "(" + PrintExpression a + ", " + PrintObject b + ", " + PrintExpression c + ")"

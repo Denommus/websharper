@@ -820,7 +820,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 else                            
                     Sequential [
                         for a, f in Seq.zip items fields ->
-                            FieldSet(Some This, t, f.Name, f.Accessibility.IsPrivate, tr a)
+                            FieldSet(Some This, t, f.Name, tr a)
                     ]
         | P.DecisionTree (matchValue, cases) ->
             let trMatchVal = transformExpression env matchValue
@@ -919,13 +919,13 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 match sr.ReadType env.TParams typ with
                 | ConcreteType ct -> ct
                 | _ -> parsefailf "Expected a record type"
-            FieldGet(thisOpt |> Option.map tr, t, field.Name, field.Accessibility.IsPrivate)
+            FieldGet(thisOpt |> Option.map tr, t, field.Name)
         | P.FSharpFieldSet (thisOpt, typ, field, value) ->
             let t = 
                 match sr.ReadType env.TParams typ with
                 | ConcreteType ct -> ct
                 | _ -> parsefailf "Expected a record type"
-            FieldSet(thisOpt |> Option.map tr, t, field.Name, field.Accessibility.IsPrivate, tr value)
+            FieldSet(thisOpt |> Option.map tr, t, field.Name, tr value)
         | P.AddressOf expr ->
             let isStructUnionGet =
                 let t = expr.Type
@@ -944,13 +944,13 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 let ov = newId()
                 let iv = newId()
                 Let (ov, o, Let(iv, i, MakeRef (ItemGet(Var ov, Var iv)) (fun value -> ItemSet(Var ov, Var iv, value))))
-            | FieldGet(o, t, f, p) ->
+            | FieldGet(o, t, f) ->
                 match o with
                 | Some o ->
                     let ov = newId()
-                    Let (ov, o, MakeRef (FieldGet(Some (Var ov), t, f, p)) (fun value -> FieldSet(Some (Var ov), t, f, p, value)))     
+                    Let (ov, o, MakeRef (FieldGet(Some (Var ov), t, f)) (fun value -> FieldSet(Some (Var ov), t, f, value)))     
                 | _ ->
-                    MakeRef e (fun value -> FieldSet(None, t, f, p, value))  
+                    MakeRef e (fun value -> FieldSet(None, t, f, value))  
             | Application(ItemGet (r, Value (String "get")), [], _, _) ->
                 r   
             | Call(None, td, m, []) ->

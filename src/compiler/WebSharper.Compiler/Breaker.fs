@@ -564,17 +564,17 @@ let rec breakExpr expr : Broken<BreakResult> =
         |> mapBroken (fun l -> Ctor(a, b, l))
     | CopyCtor (a, b) ->
         br b |> toBrExpr |> mapBroken (fun bE -> CopyCtor (a, bE))
-    | FieldGet(a, b, c, d) ->
+    | FieldGet(a, b, c) ->
         match a with
         | Some a ->
-            br a |> toBrExpr |> mapBroken (fun aE -> FieldGet (Some aE, b, c, d))
+            br a |> toBrExpr |> mapBroken (fun aE -> FieldGet (Some aE, b, c))
         | None -> broken expr
-    | FieldSet(a, b, c, d, e) ->
+    | FieldSet(a, b, c, d) ->
         match a with
         | Some a ->
-            comb2 (fun (aE, eE) -> FieldSet (Some aE, b, c, d, eE)) a e
+            comb2 (fun (aE, dE) -> FieldSet (Some aE, b, c, dE)) a d
         | None ->
-            br e |> toBrExpr |> mapBroken (fun eE -> FieldSet (None, b, c, d, eE))            
+            br d |> toBrExpr |> mapBroken (fun dE -> FieldSet (None, b, c, dE))            
     | Let(var, I.Function(args, body), c) 
         when notMutatedOrCaptured var c && CountVarOccurence(var).Get(c) >= 2 ->
             let brC = br c

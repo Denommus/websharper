@@ -39,8 +39,8 @@ type CheckNoInvalidJSForms(comp: Compilation, isInline) as this =
     override this.TransformSelf () = invalidForm "Self"
     override this.TransformBase () = invalidForm "Base"
     override this.TransformHole a = if isInline then base.TransformHole(a) else invalidForm "Hole"
-    override this.TransformFieldGet (_,_,_,_) = invalidForm "FieldGet"
-    override this.TransformFieldSet (_,_,_,_,_) = invalidForm "FieldSet"
+    override this.TransformFieldGet (_,_,_) = invalidForm "FieldGet"
+    override this.TransformFieldSet (_,_,_,_) = invalidForm "FieldSet"
     override this.TransformLet (a, b, c) = if isInline then base.TransformLet(a, b, c) else invalidForm "Let" 
     override this.TransformLetRec (_,_) = invalidForm "LetRec"
     override this.TransformStatementExpr (a, b) = if isInline then base.TransformStatementExpr(a, b) else invalidForm "StatementExpr"
@@ -1067,7 +1067,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         | Some self -> GlobalAccess self
         | _ -> this.Error ("Self address missing")
 
-    override this.TransformFieldGet (expr, typ, field, isPrivate) =
+    override this.TransformFieldGet (expr, typ, field) =
         if comp.HasGraph then
             this.AddTypeDependency typ.Entity
         match comp.LookupFieldInfo (typ.Entity, field) with
@@ -1114,7 +1114,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         | LookupFieldError err ->
             this.Error err
 
-    override this.TransformFieldSet (expr, typ, field, isPrivate, value) =
+    override this.TransformFieldSet (expr, typ, field, value) =
         if comp.HasGraph then
             this.AddTypeDependency typ.Entity
         match comp.LookupFieldInfo (typ.Entity, field) with

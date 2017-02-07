@@ -266,9 +266,9 @@ let varEvalOrder (vars : Id list) expr =
             | Ctor(_, _, a) -> 
                 List.iter eval a
                 stop()
-            | FieldGet(a, _, _, _) ->
+            | FieldGet(a, _, _) ->
                 Option.iter eval a
-            | FieldSet(a, _, _, _, b) ->   
+            | FieldSet(a, _, _, b) ->   
                 Option.iter eval a
                 eval b
                 stop()

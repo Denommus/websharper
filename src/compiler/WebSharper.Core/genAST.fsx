@@ -165,9 +165,9 @@ let ExprDefs =
             , ".NET - Creating an object from a plain object"
         "Cctor", [ NonGenericTypeDefinition, "typeDefinition" ]
             , ".NET - Static constructor"
-        "FieldGet", [ Option Expr, "thisObject"; TypeDefinition, "typeDefinition"; Str, "field"; Bool, "isPrivate" ]
+        "FieldGet", [ Option Expr, "thisObject"; TypeDefinition, "typeDefinition"; Str, "field"]
             , ".NET - Field getter"
-        "FieldSet", [ Option Expr, "thisObject"; TypeDefinition, "typeDefinition"; Str, "field"; Bool, "isPrivate"; Expr, "value" ]
+        "FieldSet", [ Option Expr, "thisObject"; TypeDefinition, "typeDefinition"; Str, "field"; Expr, "value" ]
             , ".NET - Field setter"
         "Let", [ Id, "identifier"; Expr, "value"; Expr, "body" ]
             , ".NET - An immutable value definition used only in expression body"
@@ -300,7 +300,7 @@ let binaryOps =
 
 let NL = System.Environment.NewLine
 
-let letters = [| "a"; "b"; "c"; "d"; "e" |]
+let letters = [| "a"; "b"; "c"; "d" |]
 
 let code = 
     let code = ResizeArray()

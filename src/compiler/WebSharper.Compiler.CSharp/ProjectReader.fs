@@ -249,9 +249,9 @@ let private transformClass (rcomp: CSharpCompilation) (sr: R.SymbolReader) (comp
                         |> (cs model).TransformVariableDeclarator
                     
                     if f.IsStatic then 
-                        staticInits.Add <| FieldSet(None, NonGeneric def, x.Name.Value, CodeReader.isPrivate f, e)
+                        staticInits.Add <| FieldSet(None, NonGeneric def, x.Name.Value, e)
                     else
-                        inits.Add <| FieldSet(Some This, NonGeneric def, x.Name.Value, CodeReader.isPrivate f, e)
+                        inits.Add <| FieldSet(Some This, NonGeneric def, x.Name.Value, e)
                 | _ -> 
 //                    let _ = syntax :?> VariableDeclarationSyntax
                     ()
@@ -456,10 +456,8 @@ let private transformClass (rcomp: CSharpCompilation) (sr: R.SymbolReader) (comp
                     let args = meth.Parameters |> Seq.map sr.ReadParameter |> List.ofSeq
                     let getEv, setEv =
                         let on = if meth.IsStatic then None else Some This
-                        let name = meth.AssociatedSymbol.Name
-                        let isPrivate = CodeReader.isPrivate meth
-                        FieldGet(on, NonGeneric def, name, isPrivate)
-                        , fun x -> FieldSet(on, NonGeneric def, name, isPrivate, x)
+                        FieldGet(on, NonGeneric def, meth.AssociatedSymbol.Name)
+                        , fun x -> FieldSet(on, NonGeneric def, meth.AssociatedSymbol.Name, x)
                     let b =
                         JSRuntime.CombineDelegates (NewArray [ getEv; Var args.[0].ParameterId ]) |> setEv    
                     {
@@ -473,10 +471,8 @@ let private transformClass (rcomp: CSharpCompilation) (sr: R.SymbolReader) (comp
                     let args = meth.Parameters |> Seq.map sr.ReadParameter |> List.ofSeq
                     let getEv, setEv =
                         let on = if meth.IsStatic then None else Some This
-                        let name = meth.AssociatedSymbol.Name
-                        let isPrivate = CodeReader.isPrivate meth
-                        FieldGet(on, NonGeneric def, name, isPrivate)
-                        , fun x -> FieldSet(on, NonGeneric def, name, isPrivate, x)
+                        FieldGet(on, NonGeneric def, meth.AssociatedSymbol.Name)
+                        , fun x -> FieldSet(on, NonGeneric def, meth.AssociatedSymbol.Name, x)
                     let b =
                         Call (None, NonGeneric delegateTy, NonGeneric delRemove, [getEv; Var args.[0].ParameterId]) |> setEv
                     {
