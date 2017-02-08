@@ -27,11 +27,11 @@ module R = WebSharper.Testing.Random
 
 [<JavaScript>]
 let GlobalTupled (a, b) =
-    a + b 
+    a + 2 * b 
 
 [<JavaScript>]
 let GlobalCurried a b =
-    a + b
+    a + 2 * b
 
 [<JavaScript>]
 let TupledArg f : int =
@@ -51,48 +51,67 @@ type TypeWithCurried(f) =
     let g = JavaScript.FuncWithArgs(fun (a, b) -> f a b)
     member this.Apply() = g.Call(1, 2) : int
 
+    member this.Other a b h = h a b
+
+    [<Inline>]
+    member this.OtherU(a, b, h) = this.Other a b h
+
 [<JavaScript>]
 let Tests =
 
     let LocalTupled (a, b) =
-        a + b 
+        a + 2 * b 
 
     let LocalCurried a b =
-        a + b
+        a + 2 * b
 
     TestCategory "Optimizations" {
         Test "Tupled function" {
-            equal (GlobalTupled (1, 2)) 3
-            equal (LocalTupled (1, 2)) 3
+            equal (GlobalTupled (1, 2)) 5
+            equal (LocalTupled (1, 2)) 5
         }
 
         Test "Tupled function argument" {
-            equal (TupledArg (fun (a, b) -> a + b)) 3
-            equal (TupledArg GlobalTupled) 3
-            equal (TupledArg LocalTupled) 3
-            equal (TypeWithTupled(fun (a, b) -> a + b).Apply()) 3
+            equal (TupledArg (fun (a, b) -> a + 2 * b)) 5
+            equal (TupledArg GlobalTupled) 5
+            equal (TupledArg LocalTupled) 5
+            equal (TypeWithTupled(fun (a, b) -> a + 2 * b).Apply()) 5
         }
 
         Test "Curried function" {
-            equal (GlobalCurried 1 2) 3
-            equal (LocalCurried 1 2) 3
+            equal (GlobalCurried 1 2) 5
+            equal (LocalCurried 1 2) 5
         }
 
         Test "Curried function argument" {
-            equal (CurriedArg (fun a b -> a + b)) 3
-            equal (CurriedArg GlobalCurried) 3
-            equal (CurriedArg LocalCurried) 3
-            equal (TypeWithCurried(fun a b -> a + b).Apply()) 3
+            equal (CurriedArg (fun a b -> a + 2 * b)) 5
+            equal (CurriedArg GlobalCurried) 5
+            equal (CurriedArg LocalCurried) 5
+            equal (TypeWithCurried(fun a b -> a + 2 * b).Apply()) 5
+        }
+
+        Test "Curried method" {
+            equal (TypeWithCurried(fun a b -> 0).Other 1 2 (fun a b -> a + 2 * b)) 5
+            equal (TypeWithCurried(fun a b -> 0).OtherU(1, 2, (fun a b -> a + 2 * b))) 5
         }
     }
 
 [<JavaScript>]
-let CompTest1() =
+let TupledArgWithGlobal() =
     TupledArg GlobalTupled
 
 [<JavaScript>]
-let CompTest2() =
+let TupledArgWithLocal() =
     let LocalTupled (a, b) =
         a + b 
-
     TupledArg LocalTupled
+
+[<JavaScript>]
+let CurriedArgWithGlobal() =
+    CurriedArg GlobalCurried
+
+[<JavaScript>]
+let CurriedArgWithLocal() =
+    let LocalCurried a b =
+        a + b
+    CurriedArg LocalCurried

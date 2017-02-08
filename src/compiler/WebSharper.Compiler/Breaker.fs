@@ -202,7 +202,7 @@ type OptimizeLocalTupledFunc(var, tupling) =
     override this.TransformVar(v) =
         if v = var then
             let t = Id.New(mut = false)
-            Lambda([t], Application(Var v, List.init tupling (fun i -> (Var t).[Value (Int i)]), false, Some 1))
+            Lambda([t], Application(Var v, List.init tupling (fun i -> (Var t).[Value (Int i)]), false, Some tupling))
         else Var v  
 
     override this.TransformApplication(func, args, isPure, length) =
@@ -212,7 +212,7 @@ type OptimizeLocalTupledFunc(var, tupling) =
             | [ I.NewArray ts ] when ts.Length = tupling ->
                 Application (func, ts |> List.map this.TransformExpression, isPure, Some tupling)
             | [ t ] ->
-                Application((Var v).[Value (String "apply")], [ Value Null; this.TransformExpression t ],  isPure, None)               
+                Application((Var v).[Value (String "apply")], [ Value Null; this.TransformExpression t ], isPure, Some 2)               
             | _ -> failwith "unexpected tupled FSharpFunc applied with multiple arguments"
         | _ -> base.TransformApplication(func, args, isPure, length)
 

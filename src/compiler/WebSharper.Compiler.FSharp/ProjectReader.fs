@@ -162,15 +162,15 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                 Pure = mAnnot.Pure
                 Body = expr
                 Requires = mAnnot.Requires
-                FuncArgs = curriedArgs |> Option.map (fun (_, ca, _) -> ca)
+                FuncArgs = curriedArgs |> Option.map (fun (_, ca, _, _) -> ca)
                 Args = 
                     match curriedArgs with 
                     | None -> [] 
-                    | Some (_, _, ids) -> ids
+                    | Some (_, _, ids, _) -> ids
             }
         match curriedArgs with
-        | Some (mem, ca, args) ->
-            ac.AddMember(mem, nr, args)
+        | Some (mem, ca, args, inst) ->
+            ac.AddMember(mem, nr, args, inst)
         | _ -> ()
         nr
 
@@ -402,8 +402,7 @@ let rec private transformClass (sc: Lazy<_ * StartupCode>) (comp: Compilation) (
                                 let args =
                                     argsAndVars |> List.map (snd >> fst)
                                     |> if Option.isSome t then List.skip 1 else id    
-                                
-                                Some (mem, ca, args)
+                                Some (mem, ca, args, Option.isSome t)
                         
                         let tparams = meth.GenericParameters |> Seq.map (fun p -> p.Name) |> List.ofSeq 
                         let env = CodeReader.Environment.New (argsAndVars, tparams, comp, sr)  

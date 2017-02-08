@@ -39,19 +39,61 @@ module Server =
         | _ -> failwith "expected a Call pattern"
 
     [<Remote>]
-    let CompTest1() =
-        let _, _, expr = getCompiled <@ Optimizations.CompTest1() @>
+    let TupledArgWithGlobal() =
+        let _, _, expr = getCompiled <@ Optimizations.TupledArgWithGlobal() @>
         match expr with 
         | Function (_, Return (Application (GlobalAccess _, [ GlobalAccess _ ], _, _))) -> 
-            true
-        | _ -> false
+            ""
+        | _ -> "unexpected optimized form: " + Debug.PrintExpression expr
+        |> async.Return 
+
+    [<Remote>]
+    let TupledArgWithLocal() =
+        let _, _, expr = getCompiled <@ Optimizations.TupledArgWithLocal() @>
+        match expr with 
+        | Function (_, Return (Application (GlobalAccess _, [ Function ([ _; _], _) ], _, _))) -> 
+            ""
+        | _ -> "unexpected optimized form: " + Debug.PrintExpression expr
+        |> async.Return 
+
+    [<Remote>]
+    let CurriedArgWithGlobal() =
+        let _, _, expr = getCompiled <@ Optimizations.CurriedArgWithGlobal() @>
+        match expr with 
+        | Function (_, Return (Application (GlobalAccess _, [ GlobalAccess _ ], _, _))) -> 
+            ""
+        | _ -> "unexpected optimized form: " + Debug.PrintExpression expr
+        |> async.Return 
+
+    [<Remote>]
+    let CurriedArgWithLocal() =
+        let _, _, expr = getCompiled <@ Optimizations.CurriedArgWithLocal() @>
+        match expr with 
+        | Function (_, Return (Application (GlobalAccess _, [ Function ([ _; _], _) ], _, _))) -> 
+            ""
+        | _ -> "unexpected optimized form: " + Debug.PrintExpression expr
         |> async.Return 
 
 [<JavaScript>]
 let Tests =
     TestCategory "Compiler" {
-        Test "Optimizing TupledArg GlobalTupled" {
-            let! res = Server.CompTest1()
-            isTrue res
+        Test "Optimizations.TupledArgWithGlobal" {
+            let! res = Server.TupledArgWithGlobal()
+            equal res ""
+        }
+
+        Test "Optimizations.TupledArgWithLocal" {
+            let! res = Server.TupledArgWithLocal()
+            equal res ""
+        }
+
+        Test "Optimizations.CurriedArgWithGlobal" {
+            let! res = Server.CurriedArgWithGlobal()
+            equal res ""
+        }
+
+        Test "Optimizations.CurriedArgWithLocal" {
+            let! res = Server.CurriedArgWithLocal()
+            equal res ""
         }
     }

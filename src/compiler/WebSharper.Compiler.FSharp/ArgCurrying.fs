@@ -129,7 +129,7 @@ type FuncArgVisitor(opts: FuncArgOptimization list, margs: Id list, mems) =
         | f -> this.VisitExpression f
         args |> List.iter this.VisitExpression            
 
-type FuncArgTransformer(al: list<Id * FuncArgOptimization>) =
+type FuncArgTransformer(al: list<Id * FuncArgOptimization>, isInstance) =
     inherit Transformer()
 
     let cargs = dict al
@@ -141,7 +141,10 @@ type FuncArgTransformer(al: list<Id * FuncArgOptimization>) =
         | _ -> Var v
     
     override this.TransformHole(i) =
-        match al.[i] with
+        // only real arguments of instance methods was analyzed
+        let j = if isInstance then i - 1 else i
+        if j = -1 then Hole 0 else
+        match al.[j] with
         | _, (CurriedFuncArg _ | TupledFuncArg _ as opt) ->
             OptimizedFSharpArg(Hole i, opt)
         | _ -> Hole i
@@ -179,7 +182,7 @@ type FuncArgTransformer(al: list<Id * FuncArgOptimization>) =
         | _ -> normal()
     
 type ResolveFuncArgs(comp: Compilation) =
-    let members = Dictionary<Member, NotResolvedMethod * Id list>()
+    let members = Dictionary<Member, NotResolvedMethod * Id list * bool>()
     let resolved = HashSet<Member>()
     let rArgs = Dictionary<Member * int, FuncArgOptimization>()
     let callsTo = Dictionary<Member * int, list<Member * int>>()
@@ -209,8 +212,8 @@ type ResolveFuncArgs(comp: Compilation) =
             rArgs.[mi] <- value
             rArgs.[mi] <- value
 
-    member this.AddMember(mem, nr, args) =
-        members.Add(mem, (nr, args)) |> ignore    
+    member this.AddMember(mem, nr, args, isInstance) =
+        members.Add(mem, (nr, args, isInstance)) |> ignore    
 
     member this.GetCompiled(mem, i) =
         match mem with
@@ -225,8 +228,8 @@ type ResolveFuncArgs(comp: Compilation) =
     member this.ResolveMember(mem) =
         if resolved.Add(mem) then
             match members.TryGetValue mem with
-            | true, (nr, args) -> 
-                let nr, args = members.[mem] 
+            | true, (nr, args, _) -> 
+                let nr, args, _ = members.[mem] 
                 let cv = FuncArgVisitor(nr.FuncArgs.Value, args, printMem mem)
                 cv.VisitExpression(nr.Body)
                 for i, (c, calls) in cv.Results |> Seq.indexed do
@@ -264,16 +267,20 @@ type ResolveFuncArgs(comp: Compilation) =
             |> Seq.map (fun (KeyValue((mem, i), c)) -> mem, (i, c))
             |> Seq.groupBy fst
             |> Seq.map (fun (mem, curr) ->
-                let cs = Array.zeroCreate (List.length (snd members.[mem]))
+                let _, ocs, _ = members.[mem] 
+                let cs = Array.zeroCreate (List.length ocs)
                 for _, (i, c) in curr do
                     cs.[i] <- c
                 mem, List.ofArray cs
             )
             |> dict
         
-        for (KeyValue(mem, (nr, args))) in members do
+        for (KeyValue(mem, (nr, args, isInstance))) in members do
             let cs = rArgs.[mem]
             nr.FuncArgs <- Some cs
-            let tr = 
-                (args, cs) ||> List.zip |> FuncArgTransformer
-            nr.Body <- tr.TransformExpression(nr.Body)
+            let tr = FuncArgTransformer(List.zip args cs, isInstance)
+            try
+                nr.Body <- tr.TransformExpression(nr.Body)
+            with e ->
+                failwithf "Error while optimizing function arguments of %A: args.Length=%d Error: %s at %s"
+                    mem args.Length e.Message e.StackTrace

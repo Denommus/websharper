@@ -72,7 +72,9 @@ type Breaker() =
     inherit Transformer()
 
     override this.TransformStatement (a) =
-        BreakStatement (optimizer.TransformStatement a)
+        a
+        |> optimizer.TransformStatement |> BreakStatement
+        |> optimizer.TransformStatement |> BreakStatement
 
 let private breaker = Breaker()
 
@@ -523,44 +525,23 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         match opt with
         | NotOptimizedFuncArg -> expr
         | CurriedFuncArg currying ->
-//            printfn "decurrying (%O) %A: %s" this.CurrentSourcePos.Value currying (Debug.PrintExpression expr)
-            let rec dc currying cargs expr =
-                if currying = 0 then List.rev cargs, expr else
-                    match expr with
-                    | Lambda ([arg], body, _) ->
-                        dc (currying - 1) (arg :: cargs) body             
-                    | _ -> 
-                        let i = Id.New(mut = false)
-                        dc (currying - 1) (i :: cargs) <| Application (expr, [Var i], false, Some 1)
-                //DeCurry r
-            let res =
-                match IgnoreExprSourcePos expr with 
-                | OptimizedFSharpArg(f, CurriedFuncArg arity) when arity = currying ->
-//                    if arity = currying then
-                        f
-//                    else
-//                        let body = this.TransformOptimizedFSharpArg(f, CurriedFuncArg arity) |> dc currying
-//                        Lambda(List.ofSeq cargs, body)
-                | _ ->
-                    let cargs, body = dc currying [] expr
-                    Lambda(List.ofSeq cargs, body)
-//            printfn "result %s" (Debug.PrintExpression res)
-            res
+            match IgnoreExprSourcePos expr with 
+            | OptimizedFSharpArg(f, CurriedFuncArg arity) when arity = currying ->
+                f
+            | _ ->
+                let cargs = List.init currying (fun _ -> Id.New(mut = false))
+                Lambda(cargs, CurriedApplication(expr, cargs |> List.map Var))  
         | TupledFuncArg tupling -> 
-//            printfn "detupling (%O) %A: %s" this.CurrentSourcePos.Value tupling (Debug.PrintExpression expr)
-            let res =
-                match expr with
-                | TupledLambda (args, body, _) ->
-                    Lambda(List.ofSeq args, body)
+            match expr with
+            | TupledLambda (args, body, _) ->
+                Lambda(List.ofSeq args, body)
+            | _ ->
+                match IgnoreExprSourcePos expr with
+                | OptimizedFSharpArg(f, TupledFuncArg arity) when arity = tupling -> 
+                    f
                 | _ ->
-                    match IgnoreExprSourcePos expr with
-                    | OptimizedFSharpArg(f, TupledFuncArg arity) when arity = tupling -> 
-                        f
-                    | _ ->
-                        let args = List.init tupling (fun _ -> Id.New(mut = false))
-                        Lambda(args, Application(expr, [NewArray(args |> List.map Var)], false, Some 1))
-//            printfn "result %s" (Debug.PrintExpression res)
-            res
+                    let args = List.init tupling (fun _ -> Id.New(mut = false))
+                    Lambda(args, Application(expr, [NewArray(args |> List.map Var)], false, Some 1))
 
     override this.TransformOptimizedFSharpArg(f, opt) =
         match opt with
