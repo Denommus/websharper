@@ -155,8 +155,6 @@ let ExprDefs =
             , "Temporary - F# function application"
         "OptimizedFSharpArg", [ Expr, "funcVar"; Object "FuncArgOptimization", "opt"]
             , "Temporary - optimized curried or tupled F# function argument"
-        "FSharpFuncValue", [ Expr, "func"; Object "FuncArgOptimization", "opt" ]
-            , "F# function optimization information"
         "Ctor", [ TypeDefinition, "typeDefinition"; Constructor, "ctor"; List Expr, "arguments" ] 
             , ".NET - Constructor call"
         "BaseCtor", [ Expr, "thisObject"; TypeDefinition, "typeDefinition"; Constructor, "ctor"; List Expr, "arguments" ]
@@ -486,8 +484,7 @@ let code =
                 | [_] -> "a"
                 | _ ->
                     "(" + String.concat ", " (Seq.take c.Length letters) + ")"
-            cprintfn "    let (|%s|_|) x = match ignore%sSourcePos x with %s %s%s -> Some %s | _ -> None"
-                n t n args (if n = "Function" then " | FSharpFuncValue (Function (a, b), _)" else "") trArgs
+            cprintfn "    let (|%s|_|) x = match ignore%sSourcePos x with %s %s -> Some %s | _ -> None" n t n args trArgs
 
     cprintfn "module Debug =" 
     cprintfn "    let private PrintObject x = sprintf \"%%A\" x" 

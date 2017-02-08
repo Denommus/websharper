@@ -111,8 +111,6 @@ and Expression =
     | CurriedApplication of Func:Expression * Arguments:list<Expression>
     /// Temporary - optimized curried or tupled F# function argument
     | OptimizedFSharpArg of FuncVar:Expression * Opt:FuncArgOptimization
-    /// F# function optimization information
-    | FSharpFuncValue of Func:Expression * Opt:FuncArgOptimization
     /// .NET - Constructor call
     | Ctor of TypeDefinition:Concrete<TypeDefinition> * Ctor:Constructor * Arguments:list<Expression>
     /// .NET - Base constructor call
@@ -327,9 +325,6 @@ type Transformer() =
     /// Temporary - optimized curried or tupled F# function argument
     abstract TransformOptimizedFSharpArg : FuncVar:Expression * Opt:FuncArgOptimization -> Expression
     override this.TransformOptimizedFSharpArg (a, b) = OptimizedFSharpArg (this.TransformExpression a, b)
-    /// F# function optimization information
-    abstract TransformFSharpFuncValue : Func:Expression * Opt:FuncArgOptimization -> Expression
-    override this.TransformFSharpFuncValue (a, b) = FSharpFuncValue (this.TransformExpression a, b)
     /// .NET - Constructor call
     abstract TransformCtor : TypeDefinition:Concrete<TypeDefinition> * Ctor:Constructor * Arguments:list<Expression> -> Expression
     override this.TransformCtor (a, b, c) = Ctor (a, b, List.map this.TransformExpression c)
@@ -520,7 +515,6 @@ type Transformer() =
         | CallNeedingMoreArgs (a, b, c, d) -> this.TransformCallNeedingMoreArgs (a, b, c, d)
         | CurriedApplication (a, b) -> this.TransformCurriedApplication (a, b)
         | OptimizedFSharpArg (a, b) -> this.TransformOptimizedFSharpArg (a, b)
-        | FSharpFuncValue (a, b) -> this.TransformFSharpFuncValue (a, b)
         | Ctor (a, b, c) -> this.TransformCtor (a, b, c)
         | BaseCtor (a, b, c, d) -> this.TransformBaseCtor (a, b, c, d)
         | CopyCtor (a, b) -> this.TransformCopyCtor (a, b)
@@ -661,9 +655,6 @@ type Visitor() =
     /// Temporary - optimized curried or tupled F# function argument
     abstract VisitOptimizedFSharpArg : FuncVar:Expression * Opt:FuncArgOptimization -> unit
     override this.VisitOptimizedFSharpArg (a, b) = this.VisitExpression a; ()
-    /// F# function optimization information
-    abstract VisitFSharpFuncValue : Func:Expression * Opt:FuncArgOptimization -> unit
-    override this.VisitFSharpFuncValue (a, b) = this.VisitExpression a; ()
     /// .NET - Constructor call
     abstract VisitCtor : TypeDefinition:Concrete<TypeDefinition> * Ctor:Constructor * Arguments:list<Expression> -> unit
     override this.VisitCtor (a, b, c) = (); (); List.iter this.VisitExpression c
@@ -852,7 +843,6 @@ type Visitor() =
         | CallNeedingMoreArgs (a, b, c, d) -> this.VisitCallNeedingMoreArgs (a, b, c, d)
         | CurriedApplication (a, b) -> this.VisitCurriedApplication (a, b)
         | OptimizedFSharpArg (a, b) -> this.VisitOptimizedFSharpArg (a, b)
-        | FSharpFuncValue (a, b) -> this.VisitFSharpFuncValue (a, b)
         | Ctor (a, b, c) -> this.VisitCtor (a, b, c)
         | BaseCtor (a, b, c, d) -> this.VisitBaseCtor (a, b, c, d)
         | CopyCtor (a, b) -> this.VisitCopyCtor (a, b)
@@ -923,7 +913,7 @@ module IgnoreSourcePos =
     let (|Var|_|) x = match ignoreExprSourcePos x with Var a -> Some a | _ -> None
     let (|Value|_|) x = match ignoreExprSourcePos x with Value a -> Some a | _ -> None
     let (|Application|_|) x = match ignoreExprSourcePos x with Application (a, b, c, d) -> Some (a, b, c, d) | _ -> None
-    let (|Function|_|) x = match ignoreExprSourcePos x with Function (a, b) | FSharpFuncValue (Function (a, b), _) -> Some (a, b) | _ -> None
+    let (|Function|_|) x = match ignoreExprSourcePos x with Function (a, b) -> Some (a, b) | _ -> None
     let (|VarSet|_|) x = match ignoreExprSourcePos x with VarSet (a, b) -> Some (a, b) | _ -> None
     let (|Sequential|_|) x = match ignoreExprSourcePos x with Sequential a -> Some a | _ -> None
     let (|NewArray|_|) x = match ignoreExprSourcePos x with NewArray a -> Some a | _ -> None
@@ -943,7 +933,6 @@ module IgnoreSourcePos =
     let (|CallNeedingMoreArgs|_|) x = match ignoreExprSourcePos x with CallNeedingMoreArgs (a, b, c, d) -> Some (a, b, c, d) | _ -> None
     let (|CurriedApplication|_|) x = match ignoreExprSourcePos x with CurriedApplication (a, b) -> Some (a, b) | _ -> None
     let (|OptimizedFSharpArg|_|) x = match ignoreExprSourcePos x with OptimizedFSharpArg (a, b) -> Some (a, b) | _ -> None
-    let (|FSharpFuncValue|_|) x = match ignoreExprSourcePos x with FSharpFuncValue (a, b) -> Some (a, b) | _ -> None
     let (|Ctor|_|) x = match ignoreExprSourcePos x with Ctor (a, b, c) -> Some (a, b, c) | _ -> None
     let (|BaseCtor|_|) x = match ignoreExprSourcePos x with BaseCtor (a, b, c, d) -> Some (a, b, c, d) | _ -> None
     let (|CopyCtor|_|) x = match ignoreExprSourcePos x with CopyCtor (a, b) -> Some (a, b) | _ -> None
@@ -1031,7 +1020,6 @@ module Debug =
         | CallNeedingMoreArgs (a, b, c, d) -> "CallNeedingMoreArgs" + "(" + defaultArg (Option.map PrintExpression a) "_" + ", " + b.Entity.Value.FullName + ", " + c.Entity.Value.MethodName + ", " + "[" + String.concat "; " (List.map PrintExpression d) + "]" + ")"
         | CurriedApplication (a, b) -> "CurriedApplication" + "(" + PrintExpression a + ", " + "[" + String.concat "; " (List.map PrintExpression b) + "]" + ")"
         | OptimizedFSharpArg (a, b) -> "OptimizedFSharpArg" + "(" + PrintExpression a + ", " + PrintObject b + ")"
-        | FSharpFuncValue (a, b) -> "FSharpFuncValue" + "(" + PrintExpression a + ", " + PrintObject b + ")"
         | Ctor (a, b, c) -> "Ctor" + "(" + a.Entity.Value.FullName + ", " + ".ctor" + ", " + "[" + String.concat "; " (List.map PrintExpression c) + "]" + ")"
         | BaseCtor (a, b, c, d) -> "BaseCtor" + "(" + PrintExpression a + ", " + b.Entity.Value.FullName + ", " + ".ctor" + ", " + "[" + String.concat "; " (List.map PrintExpression d) + "]" + ")"
         | CopyCtor (a, b) -> "CopyCtor" + "(" + a.Value.FullName + ", " + PrintExpression b + ")"

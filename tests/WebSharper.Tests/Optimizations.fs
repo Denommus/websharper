@@ -85,3 +85,14 @@ let Tests =
             equal (TypeWithCurried(fun a b -> a + b).Apply()) 3
         }
     }
+
+[<JavaScript>]
+let CompTest1() =
+    TupledArg GlobalTupled
+
+[<JavaScript>]
+let CompTest2() =
+    let LocalTupled (a, b) =
+        a + b 
+
+    TupledArg LocalTupled

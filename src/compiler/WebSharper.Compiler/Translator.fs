@@ -55,16 +55,15 @@ type CheckNoInvalidJSForms(comp: Compilation, isInline) as this =
 type Breaker() =
     inherit Transformer()
 
+    // TODO: separate optimizations needing recursion
     override this.TransformStatement (a) =
         let mutable i = 0
         let mutable a = a
         let mutable b = BreakStatement a
-        while i < 100 && a <> b do
+        while i < 5 && a <> b do
             i <- i + 1
             a <- b
             b <- BreakStatement b
-        if i = 100 then
-            printfn "BreakStatement iterated 100 times"
         b
 
 let private breaker = Breaker()

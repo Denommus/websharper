@@ -100,11 +100,6 @@ let getFuncArg t =
                 else NotOptimizedFuncArg
     get [] t    
 
-let funcValue t expr =
-    match getFuncArg t with 
-    | NotOptimizedFuncArg -> expr
-    | opt -> FSharpFuncValue(expr, opt)   
-
 exception ParseError of message: string with
     override this.Message = this.message 
 
@@ -601,7 +596,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
             if id.IsMutable then
                 Sequential [ NewVar(i, trValue); tr body ]
             else
-                Let (i, funcValue value.Type trValue, tr body)
+                Let (i, trValue, tr body)
         | P.LetRec(defs, body) ->
             let mutable env = env
             let ids = defs |> List.map (fun (id, _) ->
@@ -612,7 +607,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
             let inline tr x = transformExpression env x
             LetRec (
                 Seq.zip ids defs 
-                |> Seq.map (fun (i, (_, v)) -> i, funcValue v.Type (tr v)) |> List.ofSeq, 
+                |> Seq.map (fun (i, (_, v)) -> i, tr v) |> List.ofSeq, 
                 tr body
             )
         | P.Call(this, meth, typeGenerics, methodGenerics, arguments) ->

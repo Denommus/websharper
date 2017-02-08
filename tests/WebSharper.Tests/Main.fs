@@ -67,4 +67,5 @@ let RunTests() =
         Tupled.Tests
         WIG.Tests
         Cookies.Tests
+        Compiler.Tests
     |]
