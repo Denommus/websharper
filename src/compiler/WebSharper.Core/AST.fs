@@ -916,6 +916,7 @@ module IgnoreSourcePos =
     let ignoreExprSourcePos expr =
         match expr with
         | ExprSourcePos (_, e) -> e
+        | FSharpFuncValue (e, _) -> e
         | _ -> expr
     let (|Undefined|_|) x = match ignoreExprSourcePos x with Undefined  -> Some () | _ -> None
     let (|This|_|) x = match ignoreExprSourcePos x with This  -> Some () | _ -> None

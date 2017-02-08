@@ -472,6 +472,8 @@ let code =
         cprintfn "    let ignore%sSourcePos expr =" t
         cprintfn "        match expr with"
         cprintfn "        | %sSourcePos (_, e) -> e" t
+        if t = "Expr" then
+            cprintfn "        | FSharpFuncValue (e, _) -> e"
         cprintfn "        | _ -> expr"
         for n, c, _ in tl do
             let args =

@@ -1032,9 +1032,7 @@ let (|TupledLambda|_|) expr =
                         true
                     | Var t when t = tupledArg -> false
                     | _ -> true
-                let alwaysTupleGet e =
-                    ForAllSubExpr(checkTupleGet).Check(e)
-                if alwaysTupleGet body then
+                if ForAllSubExpr(checkTupleGet).Check(body) then
                     let vars = 
                         if List.length vars > !maxTupleGet then vars
                         else vars @ [ for k in List.length vars .. !maxTupleGet -> Id.New() ]
@@ -1042,6 +1040,7 @@ let (|TupledLambda|_|) expr =
                 else 
                     // if we would use the arguments object for anything else than getting
                     // a tuple item, convert it to an array
+                    printfn "sliceFromArguments used on %A" (Debug.PrintExpression expr)
                     Some (vars, Let (tupledArg, sliceFromArguments [], body), isReturn)
             else
                 Some (vars, body, isReturn)

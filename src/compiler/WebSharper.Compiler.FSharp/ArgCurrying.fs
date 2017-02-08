@@ -157,9 +157,6 @@ type FuncArgTransformer(al: list<Id * FuncArgOptimization>) =
         | _ -> Hole i
 
     override this.TransformCurriedApplication(func, args: Expression list) =
-        let normal() =
-            CodeReader.applyCurried (this.TransformExpression func)
-                (List.map this.TransformExpression args)
         match func with
         | I.Var f ->
             match cargs.TryGetValue f with
@@ -167,17 +164,17 @@ type FuncArgTransformer(al: list<Id * FuncArgOptimization>) =
 //                printfn "transforming curried application, length: %d args %d" a args.Length
                 let ucArgs, restArgs = args |> List.map this.TransformExpression |> List.splitAt a
                 let inner = Application(Var f, ucArgs, false, Some a)
-                let res = CodeReader.applyCurried inner restArgs
+                let res = CurriedApplication(inner, restArgs)
 //                printfn "result: %s" (Debug.PrintExpression res)
                 res
             | true, TupledFuncArg a ->
                 match args with
                 | t :: rArgs ->
-                    CodeReader.applyCurried (this.TransformApplication(func, [t], false, Some 1))
-                        (List.map this.TransformExpression rArgs)
+                    CurriedApplication (this.TransformApplication(func, [t], false, Some 1),
+                        List.map this.TransformExpression rArgs)
                 | _ -> failwith "tupled func must have arguments"
-            | _ -> normal()
-        | _ -> normal()
+            | _ -> base.TransformCurriedApplication(func, args)
+        | _ -> base.TransformCurriedApplication(func, args)
 
     override this.TransformApplication(func, args, p, l) =
         let normal() =

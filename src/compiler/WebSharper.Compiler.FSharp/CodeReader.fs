@@ -530,17 +530,6 @@ let rec (|CompGenClosure|_|) (expr: FSharpExpr) =
             Some value
     | _ -> None
 
-let applyCurried f xs =
-//    let rec get args f =
-//        match f with
-//        | I.Function(g, Return body) ->
-//    match get [] f with
-//    
-//    if List.length xs <= 3 then
-        xs |> List.fold (fun e a -> Application (e, [a], false, Some 1)) f
-//    else  
-//        JSRuntime.Apply f xs
-
 let rec transformExpression (env: Environment) (expr: FSharpExpr) =
     let inline tr x = transformExpression env x
     let sr = env.SymbolReader
@@ -592,11 +581,6 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
             | CallNeedingMoreArgs(thisObj, td, m, ca) ->
                 Call(thisObj, td, m, ca @ (args |> List.map tr))
             | trFunc ->
-                match func with
-                | P.Value(f) when snd (env.LookupVar f) = FuncArg -> 
-                    let trArgs = args |> List.map (fun a -> tr a |> removeListOfArray a.Type)
-                    CurriedApplication(trFunc, trArgs)
-                | _ ->
                 match args with
                 | [a] when isUnit a.Type ->
                     let trA = tr a |> removeListOfArray a.Type
@@ -605,7 +589,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                     | _ -> Sequential [ trA; Application (trFunc, [], false, Some 0) ]
                 | _ ->
                     let trArgs = args |> List.map (fun a -> tr a |> removeListOfArray a.Type)
-                    applyCurried trFunc trArgs
+                    CurriedApplication(trFunc, trArgs)
         // eliminating unneeded compiler-generated closures
         | CompGenClosure value ->
             tr value
