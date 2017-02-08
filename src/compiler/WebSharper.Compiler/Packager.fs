@@ -34,7 +34,6 @@ let packageAssembly (refMeta: M.Info) (current: M.Info) isBundle =
     let statements = ResizeArray()
 
     let glob = Var (Id.Global())
-//    declarations.Add <| VarDeclaration (glob, This)
 
     let safeObject expr = Binary(expr, BinaryOperator.``||``, Object []) 
     

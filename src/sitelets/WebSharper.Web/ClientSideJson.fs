@@ -79,7 +79,7 @@ module Provider =
     let EncodeUnion (_: obj) (discr: string) (cases: (string * (string * string * (unit -> obj -> obj) * OptionalFieldKind)[])[]) : (unit -> 'T -> obj) =
         ()
         fun () x ->
-            if JS.TypeOf x ===. JS.Object then
+            if JS.TypeOf x ===. JS.Object && x !=. null then
                 let o = New []
                 let tag = x?("$")
                 let tagName, fields = cases.[tag]
@@ -212,16 +212,16 @@ module Provider =
         ()
         fun () (o: obj) ->
             let m = ref Map.empty
-//            let decEl = decEl ()
-            JS.ForEach o (fun k -> m := Map.add k o?(k) !m; false)
+            let decEl = decEl ()
+            JS.ForEach o (fun k -> m := Map.add k (decEl o?(k)) !m; false)
             !m
 
     let DecodeStringDictionary (decEl: unit -> obj -> 'T) : (unit -> obj -> Dictionary<string, 'T>) =
         ()
         fun () (o: obj) ->
             let d = System.Collections.Generic.Dictionary()
-//            let decEl = decEl ()
-            JS.ForEach o (fun k -> d.Add(k, o?(k)); false)
+            let decEl = decEl ()
+            JS.ForEach o (fun k -> d.Add(k, decEl o?(k)); false)
             d
 
 module Macro =

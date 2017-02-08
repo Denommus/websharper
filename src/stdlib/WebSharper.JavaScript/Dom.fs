@@ -318,8 +318,8 @@ module Interfaces =
                 "tagName" =@ T<string>
 
                 // CSSOM
-                "scrollTop" =? T<double>
-                "scrollLeft" =? T<double>
+                "scrollTop" =@ T<double>
+                "scrollLeft" =@ T<double>
                 "scrollWidth" =? T<double>
                 "scrollHeight" =? T<double>
                 "clientTop" =? T<double>
@@ -489,10 +489,22 @@ module Interfaces =
                     T<obj>?detailArg ^-> T<unit>
             ]
 
+    let EventInit =
+        Pattern.Config "EventInit" {
+            Required = []
+            Optional =
+                [
+                    "bubbles", T<bool>
+                    "cancelable", T<bool>
+                    "scoped", T<bool>
+                    "composed", T<bool>
+                ]
+        }
+
     let Event =
         Event
         |+> Static [
-                Constructor T<unit>
+                Constructor (T<string> * !? EventInit)
             ]
         |+> Instance [
                 "bubbles" =@ T<bool>
@@ -841,6 +853,7 @@ module Interfaces =
     let Document =
         Document
         |=> Inherits Node
+        |+> QuerySelectorMixin
         |+> Instance [
                 "cookie" =@ T<string>
                 "body" =@ Element
@@ -926,6 +939,7 @@ module Definition =
                 I.TypeInfo
                 I.UserDataHandler
                 I.Event
+                I.EventInit
                 I.EventTarget
                 I.CustomEvent
                 I.FocusEvent

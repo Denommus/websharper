@@ -472,8 +472,6 @@ let code =
         cprintfn "    let ignore%sSourcePos expr =" t
         cprintfn "        match expr with"
         cprintfn "        | %sSourcePos (_, e) -> e" t
-        if t = "Expr" then
-            cprintfn "        | FSharpFuncValue (e, _) -> e"
         cprintfn "        | _ -> expr"
         for n, c, _ in tl do
             let args =
@@ -488,7 +486,8 @@ let code =
                 | [_] -> "a"
                 | _ ->
                     "(" + String.concat ", " (Seq.take c.Length letters) + ")"
-            cprintfn "    let (|%s|_|) x = match ignore%sSourcePos x with %s %s -> Some %s | _ -> None" n t n args trArgs
+            cprintfn "    let (|%s|_|) x = match ignore%sSourcePos x with %s %s%s -> Some %s | _ -> None"
+                n t n args (if n = "Function" then " | FSharpFuncValue (Function (a, b), _)" else "") trArgs
 
     cprintfn "module Debug =" 
     cprintfn "    let private PrintObject x = sprintf \"%%A\" x" 

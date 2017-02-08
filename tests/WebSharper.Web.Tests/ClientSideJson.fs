@@ -43,6 +43,8 @@ module ClientSideJson =
     [<Inline>]
     let InlineDeserialize<'T> (x: string) = Json.Deserialize x.[1..] : 'T
 
+    type TestType = { foo: string option }
+
     let ClientTests =
         TestCategory "Client-side JSON" {
 
@@ -145,6 +147,22 @@ module ClientSideJson =
                 do for KeyValue(k, v) in deser :> seq<_> do y?(k) <- v
                 equal y ser
             })
+
+            Test "de/serialize record with optional value" {
+                let t1 = { foo = Some "foo" }
+                let t2 : TestType = 
+                    WebSharper.Json.Encode t1 |> WebSharper.Json.Decode
+                equal t1 t2
+            }
+
+            Test "de/serialize string dictionary with optional value" {
+                let t1 = Dictionary<string,TestType>()
+                t1.Add("foo", { foo = Some "foo" })
+                t1.Add("bar", { foo = None })
+                let t2 : Dictionary<string,TestType> = 
+                    WebSharper.Json.Encode t1 |> WebSharper.Json.Decode
+                equal (Array.ofSeq t1) (Array.ofSeq t2)
+            }
 
             Test "serialize simple record" {
                 let r (x: int) : SimpleRecord =
@@ -268,12 +286,14 @@ module ClientSideJson =
                 equal (Json.Serialize Foo |> Json.Parse |> unbox) "foo"
                 equal (Json.Serialize Bar |> Json.Parse |> unbox) "bar"
                 equal (Json.Serialize Twelve |> Json.Parse |> unbox) 12
+                equal (Json.Serialize Null |> Json.Parse |> unbox) null
             }
 
             Test "deserialize union with constants" {
                 equal (Json.Deserialize (Json.Stringify "foo")) Foo
                 equal (Json.Deserialize (Json.Stringify "bar")) Bar
                 equal (Json.Deserialize (Json.Stringify 12)) Twelve
+                equal (Json.Deserialize (Json.Stringify null)) Null
             }
 
             Test "serialize System.DateTime" {
@@ -444,6 +464,7 @@ module ClientSideJson =
                 equalAsync (f Foo) Foo
                 equalAsync (f Bar) Bar
                 equalAsync (f Twelve) Twelve
+                equalAsync (f Null) Null
             }
 
             let now = System.DateTime.Now

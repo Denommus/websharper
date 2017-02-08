@@ -916,7 +916,6 @@ module IgnoreSourcePos =
     let ignoreExprSourcePos expr =
         match expr with
         | ExprSourcePos (_, e) -> e
-        | FSharpFuncValue (e, _) -> e
         | _ -> expr
     let (|Undefined|_|) x = match ignoreExprSourcePos x with Undefined  -> Some () | _ -> None
     let (|This|_|) x = match ignoreExprSourcePos x with This  -> Some () | _ -> None
@@ -924,7 +923,7 @@ module IgnoreSourcePos =
     let (|Var|_|) x = match ignoreExprSourcePos x with Var a -> Some a | _ -> None
     let (|Value|_|) x = match ignoreExprSourcePos x with Value a -> Some a | _ -> None
     let (|Application|_|) x = match ignoreExprSourcePos x with Application (a, b, c, d) -> Some (a, b, c, d) | _ -> None
-    let (|Function|_|) x = match ignoreExprSourcePos x with Function (a, b) -> Some (a, b) | _ -> None
+    let (|Function|_|) x = match ignoreExprSourcePos x with Function (a, b) | FSharpFuncValue (Function (a, b), _) -> Some (a, b) | _ -> None
     let (|VarSet|_|) x = match ignoreExprSourcePos x with VarSet (a, b) -> Some (a, b) | _ -> None
     let (|Sequential|_|) x = match ignoreExprSourcePos x with Sequential a -> Some a | _ -> None
     let (|NewArray|_|) x = match ignoreExprSourcePos x with NewArray a -> Some a | _ -> None
