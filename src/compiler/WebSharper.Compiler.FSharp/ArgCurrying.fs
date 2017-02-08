@@ -33,6 +33,9 @@ type Member =
     | Method of TypeDefinition * Method
     | Constructor of TypeDefinition * Constructor
 
+/// Examines applications of function typed arguments.
+/// If always used with a certain number of fixed arguments, 
+/// curried functions can be optimized to flat function in translation.
 type FuncArgVisitor(opts: FuncArgOptimization list, margs: Id list, mems) =
     inherit Visitor()
 
@@ -82,7 +85,6 @@ type FuncArgVisitor(opts: FuncArgOptimization list, margs: Id list, mems) =
 
     override this.VisitId i =
         if cargs.Contains i then
-//            printfn "Non-application use of curried arg %s of %s" i.Name.Value mems 
             setAppl i 0
 
     override this.VisitHole i =
@@ -112,18 +114,6 @@ type FuncArgVisitor(opts: FuncArgOptimization list, margs: Id list, mems) =
                 calls.[j].Add(Constructor (typ.Entity, ctor), i)
             | a -> this.VisitExpression a     
         )
-
-//    override this.VisitFieldSet(obj, typ, name, isPrivate, value) =
-//        match obj with
-//        | Some o -> this.VisitExpression(o)
-//        | _ -> ()
-//        if isPrivate then
-//            match IgnoreExprSourcePos value with
-//            | ArgIndex j ->
-//                calls.[j].Add(PrivateField name, 0)
-//            | a -> this.VisitExpression(value)
-//        else
-//            this.VisitExpression(value)
 
     override this.VisitCurriedApplication(f, args) =
         match IgnoreExprSourcePos f with
@@ -161,12 +151,9 @@ type FuncArgTransformer(al: list<Id * FuncArgOptimization>) =
         | I.Var f ->
             match cargs.TryGetValue f with
             | true, CurriedFuncArg a ->
-//                printfn "transforming curried application, length: %d args %d" a args.Length
                 let ucArgs, restArgs = args |> List.map this.TransformExpression |> List.splitAt a
                 let inner = Application(Var f, ucArgs, false, Some a)
-                let res = CurriedApplication(inner, restArgs)
-//                printfn "result: %s" (Debug.PrintExpression res)
-                res
+                CurriedApplication(inner, restArgs)
             | true, TupledFuncArg a ->
                 match args with
                 | t :: rArgs ->
@@ -212,7 +199,6 @@ type ResolveFuncArgs(comp: Compilation) =
         match rArgs.TryGetValue(mi) with
         | true, v -> 
             if value <> v then
-//                printfn "Changing curried optimization %s - %d : %A" (printMem mem) i value
                 rArgs.[mi] <- value
                 match callsTo.TryGetValue(mi) with
                 | true, ct ->
@@ -220,7 +206,6 @@ type ResolveFuncArgs(comp: Compilation) =
                         setRArgs c value
                 | _ -> ()
         | _ ->
-//            printfn "Setting curried optimization %s - %d : %A" (printMem mem) i value
             rArgs.[mi] <- value
             rArgs.[mi] <- value
 
@@ -243,7 +228,6 @@ type ResolveFuncArgs(comp: Compilation) =
             | true, (nr, args) -> 
                 let nr, args = members.[mem] 
                 let cv = FuncArgVisitor(nr.FuncArgs.Value, args, printMem mem)
-//                printfn "Resolving use of funcion arguments of %s : %s" (printMem mem) (Debug.PrintExpression nr.Body)
                 cv.VisitExpression(nr.Body)
                 for i, (c, calls) in cv.Results |> Seq.indexed do
                     match c with

@@ -301,16 +301,18 @@ let optimize expr =
             List.foldBack2 bind vars args body
         else 
             List.foldBack2 bind vars args (Sequential [body; Value Null])
-    | CurriedApplication (f, xs) ->
-        xs |> List.fold (fun e a -> Application (e, [a], false, Some 1)) f   
+        |> removeLets
     | Application(I.ItemGet(I.Function (vars, I.Return body), I.Value (String "apply")), [ I.Value Null; argArr ], isPure, None) ->
         List.foldBack2 bind vars (List.init vars.Length (fun i -> argArr.[Value (Int i)])) body                   
+        |> removeLets
     | Application (I.Function (args, I.Return body), xs, _, _) 
         when List.length args = List.length xs && not (needsScoping args body) ->
         List.foldBack2 bind args xs body
+        |> removeLets
     | Application (I.Function (args, I.ExprStatement body), xs, _, _) 
         when List.length args = List.length xs && not (needsScoping args body) ->
         List.foldBack2 bind args xs body
+        |> removeLets
     | Application (I.Function (_, (I.Empty | I.Block [])), xs, _, _) ->
         Sequential xs
     | Sequential [a] ->
@@ -334,7 +336,7 @@ type Optimizer() =
         let mutable b = optimize a
         while i < 10 && not (obj.ReferenceEquals(a, b)) do
             i <- i + 1
-            a <- b
+            a <- base.TransformExpression b
             b <- optimize b
         b
 
@@ -404,6 +406,8 @@ let rec breakExpr expr : Broken<BreakResult> =
         let args =
             args |> List.rev |> List.skipWhile (fun a -> CountVarOccurence(a).GetForStatement(body) = 0) |> List.rev
         broken (Function (args, BreakStatement body)) 
+    | CurriedApplication (f, xs) ->
+        xs |> List.fold (fun e a -> Application (e, [a], false, Some 1)) f |> br  
     | Application (ItemGet(a, b), c, d, e) ->
         brL (a :: b :: c)
         |> mapBroken3L (fun aE bE cE -> Application (ItemGet(aE, bE), cE, d, e))

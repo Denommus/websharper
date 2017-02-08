@@ -93,15 +93,15 @@ let errorPlaceholder = Value (String "$$ERROR$$")
 let rec transformExpression (env: Environment) (expr: Expr) =
     let inline tr x = transformExpression env x
     let call this (meth: System.Reflection.MethodInfo) args =
-        let td = Reflection.ReadTypeDefinition meth.DeclaringType
-        let md = Reflection.ReadMethod meth
-        let args = args |> List.map tr
-        match FSharpOptimizations.OptimizeCalls td md args with
-        | Some res -> res
-        | _ ->
-        let t = Generic td (meth.DeclaringType.GetGenericArguments() |> Seq.map Reflection.ReadType |> List.ofSeq)
-        let m = Generic md (meth.GetGenericArguments() |> Seq.map Reflection.ReadType |> List.ofSeq)
-        Call(this |> Option.map tr, t, m, args)
+        let td = 
+            Generic
+                (Reflection.ReadTypeDefinition meth.DeclaringType)
+                (meth.DeclaringType.GetGenericArguments() |> Seq.map Reflection.ReadType |> List.ofSeq)
+        let md =
+            Generic
+                (Reflection.ReadMethod meth)
+                (meth.GetGenericArguments() |> Seq.map Reflection.ReadType |> List.ofSeq)
+        Call(this |> Option.map tr, td, md, args |> List.map tr )
     try
         match expr with
         | Patterns.Var var ->

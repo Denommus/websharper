@@ -18,7 +18,6 @@
     <Compile Include="Constants.fs" />
     <Compile Include="Utility.fs" />
     <Compile Include="Helpers.fs" />
-    <Compile Include="Experimental.fs" />
     <Compile Include="AttributeReader.fs" />
     <Compile Include="CompilationHelpers.fs" />
     <Compile Include="Breaker.fsi" />
@@ -28,13 +27,11 @@
     <Compile Include="Verifier.fs" />
     <Compile Include="CompilationTypes.fs" />
     <Compile Include="Compilation.fs" />
-    <Compile Include="FSharpOptimizations.fs" />
     <Compile Include="QuotationReader.fs" />
     <Compile Include="ReflectedDefinitionReader.fs" />
     <Compile Include="Translator.fsi" />
     <Compile Include="Translator.fs" />
     <Compile Include="Stubs.fs" />
-    <Compile Include="Closures.fs" />
     <Compile Include="JavaScriptWriter.fs" />
     <Compile Include="Packager.fs" />
     <Compile Include="ErrorPrinting.fs" />

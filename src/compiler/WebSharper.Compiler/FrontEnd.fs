@@ -96,13 +96,6 @@ let CreateResources (comp: Compilation option) (refMeta: M.Info) (current: M.Inf
         Packager.packageAssembly refMeta current false
     
     let pkg =
-        if Experimental.ExamineClosures then
-            match comp with
-            | Some comp -> pkg |> Closures.ExamineClosures(comp).TransformExpression 
-            | _ -> pkg
-        else pkg
-
-    let pkg =
         if sourceMap then
             TransformSourcePositions(assemblyName).TransformExpression pkg
         else

@@ -90,14 +90,8 @@ let getFuncArg t =
         else
             match acc with
             | [] | [1] -> NotOptimizedFuncArg
-            | [n] ->
-                if Experimental.OptimizeTupledArguments then
-                    TupledFuncArg n
-                else NotOptimizedFuncArg
-            | _ ->
-                if Experimental.OptimizeCurriedArguments then
-                    CurriedFuncArg (List.length acc)
-                else NotOptimizedFuncArg
+            | [n] -> TupledFuncArg n
+            | _ -> CurriedFuncArg (List.length acc)
     get [] t    
 
 exception ParseError of message: string with
@@ -566,11 +560,6 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                     ) 
                 let trBody = body |> transformExpression env
                 trBody |> List.foldBack (fun v e -> lam [v] e (obj.ReferenceEquals(trBody, isUnit) && isUnit body.Type)) vars
-//                let f = lam vars trBody (isUnit body.Type)
-//                match vars.Length with
-//                | 2 -> JSRuntime.Curried2 f
-//                | 3 -> JSRuntime.Curried3 f
-//                | n -> JSRuntime.Curried f n
         | P.Application(func, types, args) ->
             match IgnoreExprSourcePos (tr func) with
             | CallNeedingMoreArgs(thisObj, td, m, ca) ->
@@ -635,9 +624,6 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                 let call =
                     match sr.ReadMember meth with
                     | Member.Method (isInstance, m) -> 
-                        match FSharpOptimizations.OptimizeCalls td m args with
-                        | Some res -> res
-                        | _ ->
                         let mt = Generic m (methodGenerics |> List.map (sr.ReadType env.TParams))
                         if isInstance then
                             Call (Option.map tr this, t, mt, args)
