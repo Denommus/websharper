@@ -26,4 +26,6 @@ open WebSharper.Core.AST
 
 val removeLets : Expression -> Expression
 
+val optimizer : Transformer
+
 val BreakStatement : Statement -> Statement

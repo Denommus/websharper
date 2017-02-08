@@ -52,21 +52,13 @@ type CheckNoInvalidJSForms(comp: Compilation, isInline) as this =
     override this.TransformTypeCheck (_,_) = invalidForm "TypeCheck"
     override this.TransformCall (a, b, c, d) = if isInline then base.TransformCall(a, b, c, d) else invalidForm "Call"
 
-type Breaker() =
+type RemoveLets() =
     inherit Transformer()
-
-    // TODO: separate optimizations needing recursion
-    override this.TransformStatement (a) =
-        let mutable i = 0
-        let mutable a = a
-        let mutable b = BreakStatement a
-        while i < 5 && a <> b do
-            i <- i + 1
-            a <- b
-            b <- BreakStatement b
-        b
-
-let private breaker = Breaker()
+    
+    override this.TransformExpression (a) =
+        base.TransformExpression(removeLets a)
+                                
+let removeLetsTr = RemoveLets()
 
 type RuntimeCleaner() =
     inherit Transformer()
@@ -76,13 +68,13 @@ type RuntimeCleaner() =
 
 let private runtimeCleaner = RuntimeCleaner()
 
-type RemoveLets() =
+type Breaker() =
     inherit Transformer()
-    
-    override this.TransformExpression (a) =
-        base.TransformExpression(removeLets a)
-                                
-let removeLetsTr = RemoveLets()
+
+    override this.TransformStatement (a) =
+        BreakStatement (optimizer.TransformStatement a)
+
+let private breaker = Breaker()
 
 let breakExpr e = 
     e 

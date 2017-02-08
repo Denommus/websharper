@@ -286,6 +286,60 @@ let rec removeLets expr =
 
 let bind key value body = Let (key, value, body)
 
+let optimize expr =
+
+    let sameVars vars args =
+        args |> List.forall (function I.Var _ -> true | _ -> false)
+        && vars = (args |> List.map (function I.Var v -> v | _ -> failwith "impossible")) 
+
+    match expr with
+    | Function (vars, I.Return (I.Application (f, args, _, Some i)))
+        when List.length args = i && sameVars vars args && VarsNotUsed(vars).Get(f) ->
+            f
+    | CurriedApplication (CurriedLambda(vars, body, isReturn), args) when vars.Length = args.Length ->
+        if isReturn then
+            List.foldBack2 bind vars args body
+        else 
+            List.foldBack2 bind vars args (Sequential [body; Value Null])
+    | CurriedApplication (f, xs) ->
+        xs |> List.fold (fun e a -> Application (e, [a], false, Some 1)) f   
+    | Application(I.ItemGet(I.Function (vars, I.Return body), I.Value (String "apply")), [ I.Value Null; argArr ], isPure, None) ->
+        List.foldBack2 bind vars (List.init vars.Length (fun i -> argArr.[Value (Int i)])) body                   
+    | Application (I.Function (args, I.Return body), xs, _, _) 
+        when List.length args = List.length xs && not (needsScoping args body) ->
+        List.foldBack2 bind args xs body
+    | Application (I.Function (args, I.ExprStatement body), xs, _, _) 
+        when List.length args = List.length xs && not (needsScoping args body) ->
+        List.foldBack2 bind args xs body
+    | Application (I.Function (_, (I.Empty | I.Block [])), xs, _, _) ->
+        Sequential xs
+    | Sequential [a] ->
+        a
+    | Application (I.Sequential (_ :: _ :: _ as a), b, c, d) ->
+        let ar = List.rev a
+        Sequential (List.rev (Application (ar.Head, b, c, d) :: List.tail ar))
+    // generated for disposing iterators
+    | Application (ItemGet(Let (x, Var y, Var x2), i), b, p, l) when x = x2 ->
+        Application(ItemGet(Var y, i), b, p, l)
+    | StatementExpr (I.ExprStatement a, None) ->
+        a   
+    | _ -> expr
+
+type Optimizer() =
+    inherit Transformer()
+
+    override this.TransformExpression (a) =
+        let mutable i = 0
+        let mutable a = base.TransformExpression a
+        let mutable b = optimize a
+        while i < 10 && not (obj.ReferenceEquals(a, b)) do
+            i <- i + 1
+            a <- b
+            b <- optimize b
+        b
+
+let optimizer = Optimizer() :> Transformer
+
 let rec breakExpr expr : Broken<BreakResult> =
     let inline br x = breakExpr x
 
@@ -331,10 +385,6 @@ let rec breakExpr expr : Broken<BreakResult> =
     let comb3 f a b c : Broken<BreakResult> =
         brL [a; b; c] |> mapBroken (function [a; b; c] -> f(a, b, c) | _ -> failwith "impossible")
     
-    let sameVars vars args =
-        args |> List.forall (function I.Var _ -> true | _ -> false)
-        && vars = (args |> List.map (function I.Var v -> v | _ -> failwith "impossible")) 
-
     match expr with
     | Undefined
     | This
@@ -350,36 +400,10 @@ let rec breakExpr expr : Broken<BreakResult> =
         broken (Global [ "ignore" ])
     | Function ([x], I.Return (I.Var y)) when x = y ->
         broken (Global [ "id" ])
-    | Function (vars, I.Return (I.Application (f, args, _, Some i)))
-        when List.length args = i && sameVars vars args && VarsNotUsed(vars).Get(f) ->
-            br f
     | Function (args, body) ->
         let args =
             args |> List.rev |> List.skipWhile (fun a -> CountVarOccurence(a).GetForStatement(body) = 0) |> List.rev
         broken (Function (args, BreakStatement body)) 
-    | CurriedApplication (CurriedLambda(vars, body, isReturn), args) when vars.Length = args.Length ->
-        if isReturn then
-            List.foldBack2 bind vars args body |> br
-        else 
-            List.foldBack2 bind vars args (Sequential [body; Value Null]) |> br
-    | CurriedApplication (f, xs) ->
-        xs |> List.fold (fun e a -> Application (e, [a], false, Some 1)) f |> br   
-    | Application(I.ItemGet(I.Function (vars, I.Return body), I.Value (String "apply")), [ I.Value Null; argArr ], isPure, None) ->
-        List.foldBack2 bind vars (List.init vars.Length (fun i -> argArr.[Value (Int i)])) body |> br                    
-    | Application (I.Function (args, I.Return body), xs, _, _) 
-        when List.length args = List.length xs && not (needsScoping args body) ->
-        List.foldBack2 bind args xs body |> br
-    | Application (I.Function (args, I.ExprStatement body), xs, _, _) 
-        when List.length args = List.length xs && not (needsScoping args body) ->
-        List.foldBack2 bind args xs body |> br
-    | Application (I.Function (_, (I.Empty | I.Block [])), xs, _, _) ->
-        Sequential xs |> br
-    | Application (I.Sequential (_ :: _ :: _ as a), b, c, d) ->
-        let ar = List.rev a
-        Sequential (List.rev (Application (ar.Head, b, c, d) :: List.tail ar)) |> br
-    // generated for disposing iterators
-    | Application (ItemGet(Let (x, Var y, Var x2), i), b, p, l) when x = x2 ->
-        Application(ItemGet(Var y, i), b, p, l) |> br
     | Application (ItemGet(a, b), c, d, e) ->
         brL (a :: b :: c)
         |> mapBroken3L (fun aE bE cE -> Application (ItemGet(aE, bE), cE, d, e))
@@ -389,8 +413,6 @@ let rec breakExpr expr : Broken<BreakResult> =
     | VarSet (a, b) ->
         br b |> toBrExpr
         |> mapBroken (fun bE -> VarSet (a, bE))
-    | Sequential [a] ->
-        br a
     | Sequential a ->
         let rec collect a =
             a |> List.collect (
@@ -522,8 +544,6 @@ let rec breakExpr expr : Broken<BreakResult> =
                 Statements = brB.Statements
                 Variables = [ a, None ] @ brB.Variables
             }
-    | StatementExpr (I.ExprStatement a, None) ->
-        br a   
     | StatementExpr (I.ExprStatement a, Some b) ->
         let brA = br a
         match brA.Body with
