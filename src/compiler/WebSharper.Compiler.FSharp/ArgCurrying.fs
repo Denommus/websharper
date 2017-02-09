@@ -63,12 +63,15 @@ type FuncArgVisitor(opts: FuncArgOptimization list, margs: Id list, mems) =
         if a > value then
             appl.[i] <- value
 
-    let (|ArgIndex|_|) e =
+    let rec (|ArgIndex|_|) e =
         match e with
         | Var v ->
             if cargs.Contains v then Some iargs.[v] else None
         | Hole i ->
             if cargs.Contains margs.[i] then Some i else None
+        | Call(None, typ, meth, [ a ]) 
+            when typ.Entity.Value.FullName = "WebSharper.JavaScript.Pervasives" && meth.Entity.Value.MethodName = "As" ->
+                (|ArgIndex|_|) (IgnoreExprSourcePos a)
         | _ -> None
                 
     member this.Results =

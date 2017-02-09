@@ -251,6 +251,9 @@ let rec removeLets expr =
     | Let(var, value, I.Application(func, [I.Var v], p, l))
         when v = var && isStronglyPureExpr func && CountVarOccurence(var).Get(func) = 0 ->
             Application(func, [value], p, l)
+    | Let(var, value, I.Application(I.Var v, args, p, l)) 
+        when v = var && CountVarOccurence(var).Get(Sequential args) = 0 ->
+            Application(value, args, p, l)
     | Let (objVar, I.Object objFields, I.Sequential (PropSetters (setters, v))) when v = objVar ->
         objFields @ setters |> Object
     | Let(a, b, c) ->
@@ -288,7 +291,7 @@ let optimize expr =
     | Function (vars, I.Return (I.Application (f, args, _, Some i)))
         when List.length args = i && sameVars vars args && VarsNotUsed(vars).Get(f) ->
         f
-    | CurriedApplication (CurriedLambda(vars, body, isReturn), args) when vars.Length = args.Length ->
+    | CurriedApplicationSeparate (CurriedLambda(vars, body, isReturn), args) when vars.Length = args.Length ->
         if isReturn then
             List.foldBack2 bind vars args body
         else 

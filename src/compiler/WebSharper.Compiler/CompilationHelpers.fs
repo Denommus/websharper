@@ -1104,6 +1104,21 @@ let (|CurriedFunction|_|) expr =
             else None
     curr [] expr
 
+let (|CurriedApplicationSeparate|_|) expr =
+    let rec appl args expr =
+        match expr with
+        | Application(func, [], p, l) ->
+            appl (Value Null :: args) func 
+        | Application(func, [a], p, l) ->
+            appl (a :: args) func 
+        | CurriedApplication(func, a) ->
+            appl (List.rev a @ args) func
+        | _ ->
+            if args.Length > 1 then
+                Some (expr, List.rev args)
+            else None
+    appl [] expr
+
 #if DEBUG
 let mutable logTransformations = false
 #endif

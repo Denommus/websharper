@@ -522,7 +522,7 @@ let rec (|CompGenClosure|_|) (expr: FSharpExpr) =
 let curriedApplication func args =
     match List.length args with
     | 0 -> func
-    | 1 -> Application (func, args, false, Some args.Length)
+    | 1 -> Application (func, args, false, Some 1)
     | _ -> CurriedApplication(func, args)
 
 let rec transformExpression (env: Environment) (expr: FSharpExpr) =

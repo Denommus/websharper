@@ -42,9 +42,20 @@ let CurriedArg f : int =
     f 1 2
 
 [<JavaScript>]
+let rec RecCurriedArg f : int =
+    let r = f 1 2 
+    if r = 5 then
+        RecCurriedArg (fun x y -> f x (y + 1))
+    else
+        r 
+
+[<JavaScript>]
 type TypeWithTupled(f) =
     let g = JavaScript.FuncWithArgs(f)
     member this.Apply() = g.Call(1, 2) : int
+
+    static member TupledArg f = 
+        f (1, 2)
 
 [<JavaScript>]
 type TypeWithCurried(f) =
@@ -55,6 +66,9 @@ type TypeWithCurried(f) =
 
     [<Inline>]
     member this.OtherU(a, b, h) = this.Other a b h
+
+    static member CurriedArg f = 
+        f 1 2
 
 [<JavaScript>]
 let Tests =
@@ -76,6 +90,7 @@ let Tests =
             equal (TupledArg GlobalTupled) 5
             equal (TupledArg LocalTupled) 5
             equal (TypeWithTupled(fun (a, b) -> a + 2 * b).Apply()) 5
+            equal (TypeWithTupled.TupledArg GlobalTupled) 5
         }
 
         Test "Curried function" {
@@ -88,6 +103,8 @@ let Tests =
             equal (CurriedArg GlobalCurried) 5
             equal (CurriedArg LocalCurried) 5
             equal (TypeWithCurried(fun a b -> a + 2 * b).Apply()) 5
+            equal (TypeWithCurried.CurriedArg GlobalCurried) 5
+            equal (RecCurriedArg GlobalCurried) 7
         }
 
         Test "Curried method" {
