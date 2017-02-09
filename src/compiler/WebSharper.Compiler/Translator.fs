@@ -78,11 +78,26 @@ type Breaker() =
 
 let private breaker = Breaker()
 
+type CollectCurried() =
+    inherit Transformer()
+
+    override this.TransformFunction(args, body) =
+        match Function(args, body) with
+        | CurriedFunction(a, b) ->
+            match a.Length with
+            | 2 -> JSRuntime.Curried2 (base.TransformFunction(a, b)) 
+            | 3 -> JSRuntime.Curried3 (base.TransformFunction(a, b)) 
+            | n -> JSRuntime.Curried (base.TransformFunction(a, b)) n
+        | _ -> base.TransformFunction(args, body)   
+   
+let collectCurried = CollectCurried() 
+
 let breakExpr e = 
     e 
     |> removeLetsTr.TransformExpression
     |> runtimeCleaner.TransformExpression
     |> breaker.TransformExpression
+    |> collectCurried.TransformExpression
 
 let defaultRemotingProvider =
     TypeDefinition {

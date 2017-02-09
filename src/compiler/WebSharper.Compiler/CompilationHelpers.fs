@@ -994,6 +994,25 @@ let (|Lambda|_|) e =
     | Function(args, ExprStatement body) -> Some (args, body, false)
     | _ -> None
 
+let (|AlwaysTupleGet|_|) tupledArg length expr =
+    let (|TupleGet|_|) e =
+        match e with 
+        | ItemGet(Var t, Value (Int i)) when t = tupledArg ->
+            Some (int i)
+        | _ -> None 
+    let maxTupleGet = ref (length - 1)
+    let checkTupleGet e =
+        match e with 
+        | TupleGet i -> 
+            if i > !maxTupleGet then maxTupleGet := i
+            true
+        | Var t when t = tupledArg -> false
+        | _ -> true
+    if ForAllSubExpr(checkTupleGet).Check(expr) then
+        Some (!maxTupleGet, (|TupleGet|_|))
+    else
+        None
+
 let (|TupledLambda|_|) expr =
     match expr with
     | Lambda ([tupledArg], b, isReturn) ->
@@ -1019,28 +1038,15 @@ let (|TupledLambda|_|) expr =
         | None -> None
         | Some (vars, body) -> 
             if containsVar tupledArg body then
-                let (|TupleGet|_|) e =
-                    match e with 
-                    | ItemGet(Var t, Value (Int i)) when t = tupledArg ->
-                        Some (int i)
-                    | _ -> None 
-                let maxTupleGet = ref (vars.Length - 1)
-                let checkTupleGet e =
-                    match e with 
-                    | TupleGet i -> 
-                        if i > !maxTupleGet then maxTupleGet := i
-                        true
-                    | Var t when t = tupledArg -> false
-                    | _ -> true
-                if ForAllSubExpr(checkTupleGet).Check(body) then
+                match body with
+                | AlwaysTupleGet tupledArg vars.Length (maxTupleGet, (|TupleGet|_|)) ->
                     let vars = 
-                        if List.length vars > !maxTupleGet then vars
-                        else vars @ [ for k in List.length vars .. !maxTupleGet -> Id.New() ]
+                        if List.length vars > maxTupleGet then vars
+                        else vars @ [ for k in List.length vars .. maxTupleGet -> Id.New(mut = false) ]
                     Some (vars, body |> BottomUp (function TupleGet i -> Var vars.[i] | e -> e), isReturn)
-                else 
+                | _ ->                                                        
                     // if we would use the arguments object for anything else than getting
                     // a tuple item, convert it to an array
-                    printfn "sliceFromArguments used on %A" (Debug.PrintExpression expr)
                     Some (vars, Let (tupledArg, sliceFromArguments [], body), isReturn)
             else
                 Some (vars, body, isReturn)
@@ -1058,5 +1064,37 @@ let (|CurriedLambda|_|) expr =
         | _ -> 
             if List.length args > 1 then
                 Some (List.rev args, expr, true)
+            else None
+    curr [] expr
+
+let (|CurriedFunction|_|) expr =
+    let rec curr args expr =
+        match expr with
+        | Lambda ([], b, true) ->
+            let a = Id.New(mut = false)
+            curr (a :: args) b
+        | Lambda ([a], b, true) ->
+            curr (a :: args) b
+        | Lambda ([], b, false) ->
+            if not (List.isEmpty args) then
+                let a = Id.New(mut = false)
+                Some (List.rev (a :: args), ExprStatement b) 
+            else None
+        | Lambda ([a], b, false) ->
+            if not (List.isEmpty args) then
+                Some (List.rev (a :: args), ExprStatement b) 
+            else None
+        | Function ([], b) ->
+            if not (List.isEmpty args) then
+                let a = Id.New(mut = false)
+                Some (List.rev (a :: args), b) 
+            else None
+        | Function ([a], b) ->
+            if not (List.isEmpty args) then
+                Some (List.rev (a :: args), b) 
+            else None
+        | _ -> 
+            if List.length args > 1 then
+                Some (List.rev args, Return expr)
             else None
     curr [] expr

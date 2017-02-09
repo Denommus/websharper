@@ -219,31 +219,13 @@ type OptimizeLocalTupledFunc(var, tupling) =
 type OptimizeLocalCurriedFunc(var, currying) =
     inherit Transformer()
 
-//    let applyArgs = ResizeArray()
-
     override this.TransformVar(v) =
         if v = var then
             let ids = List.init currying (fun _ -> Id.New(mut = false))
             CurriedLambda(ids, Application(Var v, ids |> List.map Var, false, Some currying))    
         else Var v  
 
-//    override this.TransformApplication(func, args, isPure, length) =
-//        let def() =
-//            applyArgs.Clear()
-//            base.TransformApplication(func, args, isPure, length)
-//        match args with
-//        | [ a ] ->
-//            match a with
-//            | I.Var v when v = var ->
-//                applyArgs.Add(a)
-//                    
-//        | _ -> def()
-//        applyArgs.Add(args)
-//        let trFunc 
-//        match func with
-//        | I.Var v when v = var ->                    
-//                
-//        | _ -> base.TransformApplication(func, args, isPure, length)
+let bind key value body = Let (key, value, body)
 
 let rec removeLets expr =
     let func vars body isReturn =
@@ -251,8 +233,8 @@ let rec removeLets expr =
     match expr with
     | Application (I.Let (var, value, body), xs, p, l) ->
         Let (var, value, Application (body, xs, p, l)) |> removeLets
-    | Let (a, CurriedLambda (bArgs, bBody, isReturn), c) ->
-        Let(a, func bArgs bBody isReturn, OptimizeLocalCurriedFunc(a, List.length bArgs).TransformExpression(c))
+    | Let (a, CurriedFunction (bArgs, bBody), c) ->
+        Let(a, Function(bArgs, bBody), OptimizeLocalCurriedFunc(a, List.length bArgs).TransformExpression(c))
         |> removeLets
     | Let (a, TupledLambda (bArgs, bBody, isReturn), c) ->
         Let(a, func bArgs bBody isReturn, OptimizeLocalTupledFunc(a, List.length bArgs).TransformExpression(c))
@@ -283,8 +265,6 @@ let rec removeLets expr =
         elif isPureExpr b && CountVarOccurence(a).Get(c) = 0 then c
         else expr
     | _ -> expr
-
-let bind key value body = Let (key, value, body)
 
 let optimize expr =
 
@@ -606,6 +586,18 @@ let rec breakExpr expr : Broken<BreakResult> =
                 Variables = (var, Some (FuncDeclaration(var, args, BreakStatement body))) :: brC.Variables
             }
     | Let(a, b, c) ->
+        let optimizeTupled  =
+            match b with
+            | I.NewArray items ->
+                match c with
+                | AlwaysTupleGet a items.Length (_, (|TupleGet|_|)) ->
+                    let vars = List.init items.Length (fun _ -> Id.New(mut = false))
+                    List.foldBack2 bind vars items (c |> BottomUp (function TupleGet i -> Var vars.[i] | e -> e)) |> Some
+                | _ -> None
+            | _ -> None
+        match optimizeTupled with
+        | Some o -> br o
+        | _ ->
         let brB = br b
         match brB.Body with
         | ResultExpr _ ->

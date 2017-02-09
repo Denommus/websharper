@@ -81,7 +81,6 @@ let cleanRuntime expr =
         | "CreateFuncWithArgs", [ TupledLambda (vars, body, isReturn) as f ] ->
             func vars body isReturn |> WithSourcePosOfExpr f
         | "CreateFuncWithArgs", _ ->
-            printfn "Non-optimized CreateFuncWithArgs: %A" (xs |> List.map Debug.PrintExpression)
             expr
         | "CreateFuncWithOnlyThis", [ Lambda ([obj], body, isReturn) as f ] ->
             thisFunc obj [] body isReturn |> WithSourcePosOfExpr f
