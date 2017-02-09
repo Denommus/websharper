@@ -68,15 +68,23 @@ type RuntimeCleaner() =
 
 let private runtimeCleaner = RuntimeCleaner()
 
-type Breaker() =
+type Breaker(isInline) =
     inherit Transformer()
 
     override this.TransformStatement (a) =
-        a
-        |> optimizer.TransformStatement |> BreakStatement
-        |> optimizer.TransformStatement |> BreakStatement
-
-let private breaker = Breaker()
+#if DEBUG
+        if logTransformations then
+            printfn "breaker start: %s" (Debug.PrintStatement a)
+#endif
+        let opt = a |> optimizer.TransformStatement
+        let res = if isInline then opt else BreakStatement opt
+#if DEBUG
+        if logTransformations then
+            printfn "breaker result: %s" (Debug.PrintStatement res)
+#endif
+        res
+let private breaker = Breaker(false)
+let private inlineOptimizer = Breaker(true)
 
 type CollectCurried() =
     inherit Transformer()
@@ -92,26 +100,11 @@ type CollectCurried() =
    
 let collectCurried = CollectCurried() 
 
-let breakExpr e = 
-    e 
-    |> removeLetsTr.TransformExpression
-    |> runtimeCleaner.TransformExpression
-    |> breaker.TransformExpression
-    |> collectCurried.TransformExpression
-
 let defaultRemotingProvider =
     TypeDefinition {
         Assembly = "WebSharper.Main"
         FullName =  "WebSharper.Remoting+AjaxRemotingProvider"
     }
-
-let removeSourcePosFromInlines info expr =
-    let rec ii m =
-        match m with 
-        | M.Inline -> true
-        | M.Macro(_, _, Some f) -> ii f
-        | _ -> false
-    if ii info then removeSourcePos.TransformExpression expr else expr
     
 let emptyConstructor = Hashed { CtorParameters = [] }
 
@@ -173,6 +166,9 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
     let mutable hasDelayedTransform = false
     let mutable currentFuncArgs = None
 
+    let removeSourcePosFromInlines expr =
+        if currentIsInline then removeSourcePos.TransformExpression expr else expr
+
     let modifyDelayedInlineInfo (info: M.CompiledMember) =
         if hasDelayedTransform then 
             let rec m info =
@@ -191,6 +187,19 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         match info with        
         | NotCompiled (m, _, _) 
         | NotGenerated (_, _, m, _) -> ii m
+
+    let breakExpr e = 
+        if currentIsInline then
+            e 
+            |> removeLetsTr.TransformExpression
+            |> runtimeCleaner.TransformExpression
+            |> inlineOptimizer.TransformExpression
+        else
+            e 
+            |> removeLetsTr.TransformExpression
+            |> runtimeCleaner.TransformExpression
+            |> breaker.TransformExpression
+            |> collectCurried.TransformExpression
 
     member this.CheckResult (res) =
 #if DEBUG
@@ -384,7 +393,12 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         | _ -> this.Error("Unrecognized F# compiler generated method: " + me.MethodName)
      
     member this.CompileMethod(info, expr, typ, meth) =
-        currentNode <- M.MethodNode(typ, meth)
+        currentNode <- M.MethodNode(typ, meth) 
+#if DEBUG
+        if meth.Value.MethodName.StartsWith "DebugCompiler" then
+            printfn "Logging transformations: %s" meth.Value.MethodName
+            logTransformations <- true
+#endif      
         if inProgress |> List.contains currentNode then
             let msg = sprintf "Inline loop found at method %s.%s" typ.Value.FullName meth.Value.MethodName
             comp.AddError(None, SourceError msg)
@@ -399,7 +413,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         match info with
         | NotCompiled (i, notVirtual, funcArgs) ->
             currentFuncArgs <- funcArgs
-            let res = this.TransformExpression expr |> removeSourcePosFromInlines i |> breakExpr
+            let res = this.TransformExpression expr |> removeSourcePosFromInlines |> breakExpr
             let res = this.CheckResult(res)
             let opts =
                 {
@@ -417,6 +431,9 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
                     FuncArgs = None
                 } : M.Optimizations
             comp.AddCompiledMethod(typ, meth, modifyDelayedInlineInfo i, opts, res)
+#if DEBUG
+        logTransformations <- false
+#endif
 
     member this.CompileImplementation(info, expr, typ, intf, meth) =
         currentNode <- M.ImplementationNode(typ, intf, meth)
@@ -443,7 +460,7 @@ type DotNetToJavaScript private (comp: Compilation, ?inProgress) =
         match info with
         | NotCompiled (i, _, funcArgs) -> 
             currentFuncArgs <- funcArgs
-            let res = this.TransformExpression expr |> removeSourcePosFromInlines i |> breakExpr
+            let res = this.TransformExpression expr |> removeSourcePosFromInlines |> breakExpr
             let res = this.CheckResult(res)
             let opts =
                 {

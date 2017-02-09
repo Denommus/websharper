@@ -81,6 +81,9 @@ let cleanRuntime expr =
         | "CreateFuncWithArgs", [ TupledLambda (vars, body, isReturn) as f ] ->
             func vars body isReturn |> WithSourcePosOfExpr f
         | "CreateFuncWithArgs", _ ->
+#if DEBUG
+            printfn "non-optimized CreateFuncWithArgs: %A" (Debug.PrintExpression expr)
+#endif
             expr
         | "CreateFuncWithOnlyThis", [ Lambda ([obj], body, isReturn) as f ] ->
             thisFunc obj [] body isReturn |> WithSourcePosOfExpr f
@@ -161,9 +164,9 @@ let cleanRuntime expr =
                 | _ -> None
             let rec isWithInterop e =
                 match e with
-                | WithInterop -> true
-                | Var v when v = var -> false
-                | _ -> true
+                | WithInterop -> Some true
+                | Var v when v = var -> Some false
+                | _ -> None
             if ForAllSubExpr(isWithInterop).Check(body) then
                 Let(var, getJsFunc() |> WithSourcePosOfExpr value, 
                     body |> BottomUp (function WithInterop -> Var var | e -> e))

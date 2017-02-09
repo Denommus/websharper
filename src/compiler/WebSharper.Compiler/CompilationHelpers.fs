@@ -959,14 +959,20 @@ open IgnoreSourcePos
 let containsVar v expr =
     CountVarOccurence(v).Get(expr) > 0
 
+/// Checks if a predicate is true for all sub-expressions.
+/// `checker` can return `None` for continued search
+/// `Some true` to ignore sub-expressions of current node and
+/// `Some false` to fail the check.
 type ForAllSubExpr(checker) =
     inherit Visitor()
     let mutable ok = true
 
     override this.VisitExpression(e) =
-        if not (checker e) then
-            ok <- false
-        elif ok then base.VisitExpression e
+        if ok then
+            match checker e with
+            | None -> base.VisitExpression e
+            | Some true -> ()
+            | Some false -> ok <- false
 
     member this.Check(e) = 
         ok <- true
@@ -1005,9 +1011,9 @@ let (|AlwaysTupleGet|_|) tupledArg length expr =
         match e with 
         | TupleGet i -> 
             if i > !maxTupleGet then maxTupleGet := i
-            true
-        | Var t when t = tupledArg -> false
-        | _ -> true
+            Some true
+        | Var t when t = tupledArg -> Some false
+        | _ -> None
     if ForAllSubExpr(checkTupleGet).Check(expr) then
         Some (!maxTupleGet, (|TupleGet|_|))
     else
@@ -1026,30 +1032,29 @@ let (|TupledLambda|_|) expr =
             | Let (v, ItemGet(Var t, Value (Int i)), body) when t = tupledArg ->
                 loop ((int i, v) :: acc) body
             | body -> 
-                if List.isEmpty acc then None else
+                if List.isEmpty acc then [], body else
                 let m = Map.ofList acc
-                Some (
-                    [ for i in 0 .. (acc |> Seq.map fst |> Seq.max) -> 
-                        match m |> Map.tryFind i with
-                        | None -> Id.New(mut = false)
-                        | Some v -> v 
-                    ], body)
-        match loop [] b with
-        | None -> None
-        | Some (vars, body) -> 
-            if containsVar tupledArg body then
-                match body with
-                | AlwaysTupleGet tupledArg vars.Length (maxTupleGet, (|TupleGet|_|)) ->
-                    let vars = 
-                        if List.length vars > maxTupleGet then vars
-                        else vars @ [ for k in List.length vars .. maxTupleGet -> Id.New(mut = false) ]
-                    Some (vars, body |> BottomUp (function TupleGet i -> Var vars.[i] | e -> e), isReturn)
-                | _ ->                                                        
-                    // if we would use the arguments object for anything else than getting
-                    // a tuple item, convert it to an array
-                    Some (vars, Let (tupledArg, sliceFromArguments [], body), isReturn)
-            else
-                Some (vars, body, isReturn)
+                [ for i in 0 .. (acc |> Seq.map fst |> Seq.max) -> 
+                    match m |> Map.tryFind i with
+                    | None -> Id.New(mut = false)
+                    | Some v -> v 
+                ], body
+        let vars, body = loop [] b
+        if containsVar tupledArg body then
+            match body with
+            | AlwaysTupleGet tupledArg vars.Length (maxTupleGet, (|TupleGet|_|)) ->
+                let vars = 
+                    if List.length vars > maxTupleGet then vars
+                    else vars @ [ for k in List.length vars .. maxTupleGet -> Id.New(mut = false) ]
+                Some (vars, body |> BottomUp (function TupleGet i -> Var vars.[i] | e -> e), isReturn)
+            | _ ->                                                        
+                // if we would use the arguments object for anything else than getting
+                // a tuple item, convert it to an array
+                if List.isEmpty vars then None else
+                Some (vars, Let (tupledArg, sliceFromArguments [], body), isReturn)
+        else
+            if List.isEmpty vars then None else
+            Some (vars, body, isReturn)
     | _ -> None
 
 let (|CurriedLambda|_|) expr =
@@ -1098,3 +1103,7 @@ let (|CurriedFunction|_|) expr =
                 Some (List.rev args, Return expr)
             else None
     curr [] expr
+
+#if DEBUG
+let mutable logTransformations = false
+#endif

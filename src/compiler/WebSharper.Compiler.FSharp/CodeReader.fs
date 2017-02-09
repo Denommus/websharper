@@ -519,6 +519,12 @@ let rec (|CompGenClosure|_|) (expr: FSharpExpr) =
             Some value
     | _ -> None
 
+let curriedApplication func args =
+    match List.length args with
+    | 0 -> func
+    | 1 -> Application (func, args, false, Some args.Length)
+    | _ -> CurriedApplication(func, args)
+
 let rec transformExpression (env: Environment) (expr: FSharpExpr) =
     let inline tr x = transformExpression env x
     let sr = env.SymbolReader
@@ -573,7 +579,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                     | _ -> Sequential [ trA; Application (trFunc, [], false, Some 0) ]
                 | _ ->
                     let trArgs = args |> List.map (fun a -> tr a |> removeListOfArray a.Type)
-                    CurriedApplication(trFunc, trArgs)
+                    curriedApplication trFunc trArgs
         // eliminating unneeded compiler-generated closures
         | CompGenClosure value ->
             tr value
@@ -741,7 +747,7 @@ let rec transformExpression (env: Environment) (expr: FSharpExpr) =
                     | P.NewUnionCase (_, _, [h; t]) ->
                         getItems (h :: acc) t 
                     | P.NewUnionCase (_, _, []) ->
-                        Some (List.rev acc)
+                        if acc.Length > 1 then Some (List.rev acc) else None
                     | _ -> None
                 match exprs with
                 | [] ->

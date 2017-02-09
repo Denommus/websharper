@@ -254,6 +254,18 @@ let rec removeLets expr =
     | Let (objVar, I.Object objFields, I.Sequential (PropSetters (setters, v))) when v = objVar ->
         objFields @ setters |> Object
     | Let(a, b, c) ->
+        let optimizeTupled  =
+            match b with
+            | I.NewArray items ->
+                match c with
+                | AlwaysTupleGet a items.Length (_, (|TupleGet|_|)) ->
+                    let vars = List.init items.Length (fun _ -> Id.New(mut = false))
+                    List.foldBack2 bind vars items (c |> BottomUp (function TupleGet i -> Var vars.[i] | e -> e)) |> Some
+                | _ -> None
+            | _ -> None
+        match optimizeTupled with
+        | Some o -> o
+        | _ ->
         if isStronglyPureExpr b then 
             match CountVarOccurence(a).Get(c) with
             | 0 -> c
@@ -275,7 +287,7 @@ let optimize expr =
     match expr with
     | Function (vars, I.Return (I.Application (f, args, _, Some i)))
         when List.length args = i && sameVars vars args && VarsNotUsed(vars).Get(f) ->
-            f
+        f
     | CurriedApplication (CurriedLambda(vars, body, isReturn), args) when vars.Length = args.Length ->
         if isReturn then
             List.foldBack2 bind vars args body
@@ -284,11 +296,11 @@ let optimize expr =
         |> removeLets
     | Application(TupledLambda(vars, body, isReturn), [ I.NewArray args ], isPure, _)
         when vars.Length = args.Length && not (needsScoping vars body) ->
-            if isReturn then
-                List.foldBack2 bind vars args body
-            else 
-                List.foldBack2 bind vars args (Sequential [body; Value Null])
-            |> removeLets
+        if isReturn then
+            List.foldBack2 bind vars args body
+        else 
+            List.foldBack2 bind vars args (Sequential [body; Value Null])
+        |> removeLets
     | Application(I.ItemGet(I.Function (vars, I.Return body), I.Value (String "apply")), [ I.Value Null; argArr ], isPure, _) ->
         List.foldBack2 bind vars (List.init vars.Length (fun i -> argArr.[Value (Int i)])) body                   
         |> removeLets
@@ -312,7 +324,8 @@ let optimize expr =
         Application(ItemGet(Var y, i), b, p, l)
     | StatementExpr (I.ExprStatement a, None) ->
         a   
-    | _ -> expr
+    | _ ->
+        expr
 
 type Optimizer() =
     inherit Transformer()
@@ -320,11 +333,19 @@ type Optimizer() =
     override this.TransformExpression (a) =
         let mutable i = 0
         let mutable a = base.TransformExpression a
-        let mutable b = optimize a
-        while i < 10 && not (obj.ReferenceEquals(a, b)) do
+        let mutable b = optimize (removeLets a)
+#if DEBUG        
+        if logTransformations then
+            printfn "optimizer first: %s -> %s" (Debug.PrintExpression a) (Debug.PrintExpression b)
+#endif      
+        while i < 10 && not (obj.ReferenceEquals(a, b) || a = b) do
             i <- i + 1
             a <- base.TransformExpression b
-            b <- optimize b
+            b <- optimize (removeLets b)
+#if DEBUG        
+            if logTransformations then
+                printfn "optimizer: %s -> %s" (Debug.PrintExpression a) (Debug.PrintExpression b)
+#endif      
         b
 
 let optimizer = Optimizer() :> Transformer
@@ -593,18 +614,6 @@ let rec breakExpr expr : Broken<BreakResult> =
                 Variables = (var, Some (FuncDeclaration(var, args, BreakStatement body))) :: brC.Variables
             }
     | Let(a, b, c) ->
-        let optimizeTupled  =
-            match b with
-            | I.NewArray items ->
-                match c with
-                | AlwaysTupleGet a items.Length (_, (|TupleGet|_|)) ->
-                    let vars = List.init items.Length (fun _ -> Id.New(mut = false))
-                    List.foldBack2 bind vars items (c |> BottomUp (function TupleGet i -> Var vars.[i] | e -> e)) |> Some
-                | _ -> None
-            | _ -> None
-        match optimizeTupled with
-        | Some o -> br o
-        | _ ->
         let brB = br b
         match brB.Body with
         | ResultExpr _ ->

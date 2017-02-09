@@ -115,6 +115,15 @@ type FuncArgVisitor(opts: FuncArgOptimization list, margs: Id list, mems) =
             | a -> this.VisitExpression a     
         )
 
+    override this.VisitBaseCtor(expr, typ, ctor, args) =
+        args |> List.iteri (fun i a ->
+            match IgnoreExprSourcePos a with
+            | ArgIndex j ->
+                calls.[j].Add(Constructor (typ.Entity, ctor), i)
+            | a -> this.VisitExpression a     
+        )
+        this.VisitExpression expr
+
     override this.VisitCurriedApplication(f, args) =
         match IgnoreExprSourcePos f with
         | ArgIndex i ->
@@ -156,12 +165,12 @@ type FuncArgTransformer(al: list<Id * FuncArgOptimization>, isInstance) =
             | true, CurriedFuncArg a ->
                 let ucArgs, restArgs = args |> List.map this.TransformExpression |> List.splitAt a
                 let inner = Application(Var f, ucArgs, false, Some a)
-                CurriedApplication(inner, restArgs)
+                CodeReader.curriedApplication inner restArgs
             | true, TupledFuncArg a ->
                 match args with
                 | t :: rArgs ->
-                    CurriedApplication (this.TransformApplication(func, [t], false, Some 1),
-                        List.map this.TransformExpression rArgs)
+                    CodeReader.curriedApplication (this.TransformApplication(func, [t], false, Some 1))
+                        (List.map this.TransformExpression rArgs)
                 | _ -> failwith "tupled func must have arguments"
             | _ -> base.TransformCurriedApplication(func, args)
         | _ -> base.TransformCurriedApplication(func, args)
